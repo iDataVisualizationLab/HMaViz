@@ -64,7 +64,7 @@ angular.module('pcagnosticsviz', [
       initialSpec: window.initialSpec || undefined,
       debugInList: false,
       logLevel: 'DEBUG',
-      logToWebSql: true, // log user interactions (for user study)
+      logToWebSql: false, // log user interactions (for user study)
       maxAnyShelf: 4
     });
   }])
@@ -102,6 +102,30 @@ angular.module('pcagnosticsviz')
 
 'use strict';
 
+/**
+ * @ngdoc directive
+ * @name pcagnosticsviz.directive:nullFilterDirective
+ * @description
+ * # nullFilterDirective
+ */
+angular.module('pcagnosticsviz')
+  .directive('nullFilterDirective', ["Spec", function (Spec) {
+    return {
+      templateUrl: 'components/nullfilterdirective/nullfilterdirective.html',
+      restrict: 'E',
+      scope: {},
+      link: function postLink(scope, element, attrs) {
+        // jshint unused:false
+        scope.Spec = Spec;
+
+        scope.updateFilter = function() {
+          Spec.update();
+        };
+      }
+    };
+  }]);
+'use strict';
+
 angular.module('pcagnosticsviz')
   .directive('lyraExport', function() {
     return {
@@ -135,30 +159,6 @@ angular.module('pcagnosticsviz')
 
 'use strict';
 
-/**
- * @ngdoc directive
- * @name pcagnosticsviz.directive:nullFilterDirective
- * @description
- * # nullFilterDirective
- */
-angular.module('pcagnosticsviz')
-  .directive('nullFilterDirective', ["Spec", function (Spec) {
-    return {
-      templateUrl: 'components/nullfilterdirective/nullfilterdirective.html',
-      restrict: 'E',
-      scope: {},
-      link: function postLink(scope, element, attrs) {
-        // jshint unused:false
-        scope.Spec = Spec;
-
-        scope.updateFilter = function() {
-          Spec.update();
-        };
-      }
-    };
-  }]);
-'use strict';
-
 angular.module('pcagnosticsviz')
   .directive('jsonInput', ["JSON3", function(JSON3) {
     return {
@@ -186,16 +186,40 @@ angular.module('pcagnosticsviz')
                 initialLimit: '<',
                 priority:'<',
                 marks: '<',
-                props: '<',
+                props: '=',
                 limit:'=',
                 limitup: '=',
             },
             replace: true,
-            controller: ["$scope", "PCAplot", "Logger", function($scope, PCAplot, Logger) {
+            controller: ["$scope", "PCAplot", "Logger", "Dataset", function($scope, PCAplot, Logger,Dataset) {
                 var first = true;
+
+                //<editor-fold desc=“new area"
+
+                //general plot variable stored
+                let generalattr ={
+                    svg: d3.select('.thum').select('svg'),
+                    g: d3.select('.thum').select('.oneDimentional'),
+                    margin: {left:20, top: 100, bottom:20, right:20},
+                    width: 1200,
+                    height: 1200,
+                    w: function() {return this.width-this.margin.left-this.margin.right},
+                    h: function() {return this.height-this.margin.top-this.margin.bottom},
+                    sw: 270,
+                    sh: 75,
+                    force: undefined,
+                    xScale: undefined,
+                    yScale: undefined,
+                };
+                generalattr.g.attr('transform','translate('+generalattr.margin.left+','+generalattr.margin.top+')');
+
+                //</editor-fold>
+
+
                 $scope.limit = $scope.initialLimit || (($scope.prop.dim<1)?10:5);
-                console.log("dim: " + $scope.prop.dim + "limit: " + $scope.limit);
+                // console.log("dim: " + $scope.prop.dim + "limit: " + $scope.limit);
                 $scope.limitup =  ($scope.prop.pos > $scope.limit)? ($scope.prop.pos-2) : 0;
+
                 $scope.typeChange =function (){
                     var tolog = {level_explore: $scope.prop.dim, abtraction: $scope.prop.mark, visual_feature: $scope.prop.type};
                     Logger.logInteraction(Logger.actions.FEATURE_SELECT, $scope.prop.type,{
@@ -208,7 +232,9 @@ angular.module('pcagnosticsviz')
                     console.log("dim: " + $scope.prop.dim + "limit: " + $scope.limit);
                 };
                 $scope.previewSlider = function (index){
-                    $scope.prop.pos =index+$scope.limitup;
+                    // $scope.prop.pos =index+$scope.limitup;
+                    console.log(index);
+                    $scope.prop.pos =index;
                     var tolog = {level_explore: $scope.prop.dim, abtraction: $scope.prop.mark, visual_feature: $scope.prop.type};
                     Logger.logInteraction(Logger.actions.FEATURE_QUICKNAVIGATION,index, {
                         val:{PS:tolog,spec:this.vlSpec,query:this.query},
@@ -226,12 +252,27 @@ angular.module('pcagnosticsviz')
                     $scope.limitup =  ($scope.prop.pos > 1 )?Math.min( $scope.limitup,($scope.prop.pos-2)): 0;
                     console.log("dim: " + $scope.prop.dim + "limit: " + $scope.limit);
                 };
-                var specWatcher = $scope.$watch('prop', function(spec) {
-                    $scope.limit = first?($scope.initialLimit || (($scope.prop.dim<1)?10:5)):$scope.limit;
-                    first = false;
-                    // console.log("dim: " + $scope.prop.dim + "limit: " + $scope.limit);
-                    $scope.limitup = Math.min($scope.limitup,($scope.prop.pos > $scope.limit)? ($scope.prop.pos-2) : 0);
+
+                // var specWatcher = $scope.$watch('prop', function(spec) {
+                //     $scope.limit = first?($scope.initialLimit || (($scope.prop.dim<1)?10:5)):$scope.limit;
+                //     first = false;
+                //     // console.log("dim: " + $scope.prop.dim + "limit: " + $scope.limit);
+                //     $scope.limitup = Math.min($scope.limitup,($scope.prop.pos > $scope.limit)? ($scope.prop.pos-2) : 0);
+                //
+                //
+                // }, true);
+
+                var generalWatcher = $scope.$watch('[prop.dim,prop.type,prop.mark]', function(spec) {
+
+                    updateInterface($scope.prop.dim,$scope.prop);
+
                 }, true); //, true /* watch equality rather than reference */);
+
+                var posWatcher = $scope.$watch('[prop.pos]', function(spec) {
+
+                    selectInterface($scope.prop.dim,$scope.prop.pos);
+
+                }, false);
 
                 $scope.increaseLimit = function () {
                     $scope.limit += 4;
@@ -239,10 +280,258 @@ angular.module('pcagnosticsviz')
 
                 $scope.$on('$destroy', function() {
                     // Clean up watcher
-                    specWatcher();
+                    // specWatcher();
+                    generalWatcher();
                 });
+
+                function updateInterface (dim,data){
+                    switch (dim){
+                        case 0:
+                            generalplot_1D(data);
+                            break;
+                        case 1:
+                            generalplot_2D(data);
+                            break;
+                        default:
+                            generalplot_nD(data);
+                            break;
+                    }
+                }
+
+                function selectInterface (dim,data){
+                    switch (dim){
+                        case 0:
+                            selectplot_1D(data);
+                            break;
+                        case 1:
+                            selectplot_2D(data);
+                            break;
+                        default:
+                            selectplot_nD(data);
+                            break;
+                    }
+                }
+
+                function generalplot_1D (data) {
+                    // inital value
+                    if (generalattr.force) {
+
+                    }
+                    else {
+                        generalattr.force = d3v4.forceSimulation()
+                            .force('forceY', d3v4.forceY().strength(0.8).y(d => {
+                                return generalattr.yScale(d.vlSpec.config.typer.val[d.vlSpec.config.typer.type]);
+                            })).force('forceX', d3v4.forceX().x(function (d) {
+                                return generalattr.xScale(d);
+                            })).force('collision', d3v4.forceCollide().strength(1).radius(function (d) {
+                                if (d.order === $scope.prop.pos || d.order === generalattr.mouseoverIndex) {
+                                    return generalattr.sh / 2;
+                                }
+                                return generalattr.sh/4
+                            }))
+                            .on('tick', ticked);
+                    }
+                    generalattr.height = generalattr.sh*$scope.prop.previewcharts.length/2;
+                    generalattr.svg.attr('viewBox',[0,0,generalattr.width,generalattr.height].join(' '));
+                    generalattr.g = d3.select('.thum').select('.oneDimentional');
+                    generalattr.g.select('.twoDimentional').selectAll('*').remove();
+
+                    generalattr.yScale = d3v4.scaleLinear().range([generalattr.h()-generalattr.sh/2,generalattr.sh/2]);
+                    generalattr.xScale = function(d){return 0};
+                    generalattr.xRescale = d3v4.scaleLinear().domain([0,generalattr.sh/2]).range([generalattr.w()/2,generalattr.w()/2+generalattr.sw/2]);
+                    function ticked (d){
+                        d3v4.select(".thum").selectAll('.foreignObject').data($scope.prop.previewcharts)
+                            .attr ('transform',function (d){
+                                return'translate('+ generalattr.xRescale(d.x) +','+ (d.y-generalattr.sh/2)+')'})
+                            .on('mouseover',function (d){
+                                generalattr.mouseoverIndex = d.order;
+                                generalattr.force.nodes($scope.prop.previewcharts).alpha(0.01).restart();
+                                d3.select(this).classed('hover',true);
+                            })
+                                .on('mouseleave',function (d) {
+                                generalattr.mouseoverIndex = -1;
+                                    generalattr.force.nodes($scope.prop.previewcharts).alpha(0.3).restart();
+                                d3.select(this).classed('hover',false);
+                            });
+                            // .attr("x", function(d){ return generalattr.xRescale(d.x); })
+                            // .attr("y", function(d){ return d.y-generalattr.sh/2; })
+                    }
+
+
+                    // update
+                    generalattr.yScale.domain(d3.extent($scope.prop.previewcharts,d=>d.vlSpec.config.typer.val[d.vlSpec.config.typer.type]));
+                    generalattr.force.nodes($scope.prop.previewcharts).alpha(0.3).restart();
+                    // fixedSizeForeignObjects(d3v4.select(".thum").selectAll('foreignObject').nodes());
+
+                }
+
+                function selectplot_1D (index) {
+                    generalattr.g.selectAll('.active').classed('active',false);
+                    generalattr.g.selectAll('.foreignObject').filter(d=>d.order==index).classed('active',true);
+                    generalattr.force.nodes($scope.prop.previewcharts).alpha(0.3).restart();
+                }
+
+                function selectplot_2D (index) {
+                    generalattr.g.selectAll('.active').classed('active',false);
+                    generalattr.g.selectAll('.cell').filter(d=>d.order==index).classed('active',true);
+                }
+
+                function generalplot_2D (data) {
+                    // clean
+                    if (generalattr.force) {
+                        generalattr.force.stop();
+                    }
+                    // init
+                    generalattr.height = generalattr.width;
+                    generalattr.svg.attr('viewBox',[0,0,generalattr.width,generalattr.height]);
+                    generalattr.g = d3.select('.thum').select('.twoDimentional');
+
+                    var colorArray = ["#77946F","#aec7b2","#c5d6c6","#e6e6e6","#e6e6d8","#e6d49c","#e6b061","#e6852f","#e6531a","#e61e1a"];
+                    var level= colorArray.length;
+                    var domain = d3.range(level).map(function(d) {return d/(level-1)});
+                    let rainbowcolor = d3v4.scaleLinear()
+                        .domain(domain)
+                        .range(colorArray);
+                    if (generalattr.g.select('defs')[0][0]==null) {
+                        const defs = generalattr.g.append('defs');
+                        let colorGradient = defs.append('linearGradient')
+                            .attr('id','linear-gradient')
+                            .attr('x1','0%')
+                            .attr('x2','0%')
+                            .attr('y1','100%')
+                            .attr('y2','0%');
+                        colorGradient.selectAll("stop").data(colorArray).enter()
+                            .append('stop')
+                            .attr('offset',(d,i)=> (i / (level - 1) * 100) + '%')
+                            .attr('stop-color',(d)=>d);
+                    }
+                    let legend = generalattr.g.select('.legend');
+                    if (legend[0][0] === null) {
+                        legend = generalattr.g.append('g')
+                            .attr('class','legend').attr('transform','translate('+(generalattr.w()-50)+','+0+')');
+                        legend.append('rect')
+                            .attr('x',20)
+                            .attr('width',30)
+                            .attr('height',150)
+                            .style('fill','url("#linear-gradient")')
+                    }
+
+                    let sizescale = d3v4.scaleLinear()
+                        .domain([0,1])
+                        .range([0.5,1]);
+
+                    // update
+
+                    let domainByTrait = {},
+                        traits = Dataset.schema.fieldSchemas.map(d=>{return {text:d.field,value:0}});
+
+                    traits.forEach(function(trait) {
+                        trait.value = d3.sum($scope.prop.previewcharts.filter(pc=> pc.fieldSet.find(f=>f.field==trait.text) !== undefined ).map(d=>d.vlSpec.config.typer.val[d.vlSpec.config.typer.type]));
+                        domainByTrait[trait] = [Dataset.schema.fieldSchema(trait.text).stats.min,Dataset.schema.fieldSchema(trait.text).stats.max];
+
+                    });
+                    traits.sort((a,b)=>b.value-a.value);
+
+                    generalattr.xScale = d3v4.scaleBand().range([0, generalattr.w()]).domain(traits.map(d=>d.text)).paddingInner(0.05);
+                    generalattr.yScale = d3v4.scaleBand().range([0, generalattr.h()]).domain(traits.map(d=>d.text));
+
+                    let x = d3v4.scaleLinear()
+                        .range([0, generalattr.xScale.bandwidth()]);
+                    let y = d3v4.scaleLinear()
+                        .range([0,generalattr.yScale.bandwidth()]);
+
+                    $scope.prop.previewcharts.forEach(d=>{
+                        const pos = [d.fieldSet[0].field,d.fieldSet[1].field];
+                        pos.sort((a,b)=>a-b);
+                        d.id = pos.join('|') + pos.reverse().join('|');
+                    });
+
+                    let labels = generalattr.g.selectAll(".mlabel")
+                        .data(traits,d=>d.text);
+                    labels.transition().duration(generalattr.w()).delay(function(d, i) { return generalattr.xScale(d.text); }).call(updateLabel);
+                    labels.exit().remove();
+                    labels.enter().call(plotLabel);
+
+                    let cells = generalattr.g.selectAll(".cell")
+                        .data($scope.prop.previewcharts,d=>d.id);
+                    cells.transition().duration(generalattr.w()).delay(function(d, i) { return generalattr.xScale(d.fieldSet[0].field); }).call(updateplot);
+                    cells.exit().remove();
+                    cells.enter().call(plot);
+
+                    function plot(p) {
+                        return p.append("g")
+                            .attr("class", "cell")
+                            .attr("transform", function(d) {
+                                const pos = [generalattr.xScale(d.fieldSet[0].field),generalattr.xScale(d.fieldSet[1].field)];
+                                pos.sort((a,b)=>a-b);
+                                return "translate(" + pos[0] + "," + pos[1] + ")"; })
+                            .on('click', function (d,i){
+                                generalattr.g.selectAll('.active').classed('active',false);
+                                d3.select(this).classed('active',true);
+                                $scope.previewSlider(d.order)})
+                            .append("rect")
+                            // .attr("transform", function(d) {
+                            //     const pos = (1-sizescale(d.vlSpec.config.typer.val[d.vlSpec.config.typer.type]))*generalattr.xScale.bandwidth()/2;
+                            //     return "translate(" + pos + "," + pos + ")"; })
+                            .attr("class", "frame")
+                            .style("fill",d=>rainbowcolor(d.vlSpec.config.typer.val[d.vlSpec.config.typer.type]))
+                            .attr("width", d => generalattr.xScale.bandwidth())
+                            .attr("height",d => generalattr.xScale.bandwidth());
+                    }
+
+                    function updateplot(p) {
+                        return p.attr("transform", function(d) {
+                            const pos = [generalattr.xScale(d.fieldSet[0].field),generalattr.xScale(d.fieldSet[1].field)];
+                            pos.sort((a,b)=>a-b);
+                            return "translate(" + pos[0] + "," + pos[1] + ")"; })
+                            .select(".frame")
+                            // .attr("transform", function(d) {
+                            //     const pos = (1-sizescale(d.vlSpec.config.typer.val[d.vlSpec.config.typer.type]))*generalattr.xScale.bandwidth()/2;
+                            //     return "translate(" + pos + "," + pos + ")"; })
+                            .style("fill",d=>rainbowcolor(d.vlSpec.config.typer.val[d.vlSpec.config.typer.type]))
+                            .attr("width", d => generalattr.xScale.bandwidth())
+                            .attr("height",d => generalattr.xScale.bandwidth());
+                    }
+
+                    function plotLabel(p) {
+                        return p.append("g")
+                            .attr("class", "mlabel")
+                            .attr("transform", function(d) {
+                                const pos = [generalattr.xScale(d.text)+generalattr.xScale.bandwidth()/2,generalattr.xScale(d.text)+generalattr.xScale.bandwidth()/2];
+                                return "translate(" + pos[0] + "," + pos[1] + ")"; })
+                            .append("text")
+                            .attr("class", "mlabeltext")
+                            .attr('dy','0.5em')
+                            .text(d=>d.text);
+                    }
+
+                    function updateLabel(p) {
+                        return p.attr("transform", function(d) {
+                            const pos = [generalattr.xScale(d.text)+generalattr.xScale.bandwidth()/2,generalattr.xScale(d.text)+generalattr.xScale.bandwidth()/2];
+                            return "translate(" + pos[0] + "," + pos[1] + ")"; });
+                    }
+
+                }
+
+                function generalplot_nD (data) {
+
+                }
+
+
+
+
             }]
         }
+    })
+    .directive('foRepeatDirective', function() {
+        return function(scope, element, attrs) {
+
+            if (scope.$last){
+                // d3.select('.thum').select('.oneDimentional').selectAll('.active').classed('active',false);
+                // d3.select('.thum').select('.oneDimentional').selectAll('foreignObject').filter(d=>d.order==index).classed('active',true);
+                // window.alert("im the last!");
+            }
+        };
     });
 
 'use strict';
@@ -253,36 +542,54 @@ angular.module('pcagnosticsviz')
             templateUrl: 'components/d3-slidegraph/slide-graph.html',
             replace: true,
             scope: {
-                charts: '<', // Two-way
+                charts: '=', // One
                 pos: '=',
                 postSelectAction: '&',
                 limit: '=',
                 limitup: '=',
             },
             link: function postLink(scope,element) {
-
+                scope.limitconst = 1;
+                scope.buffer = [];
                 var itemCount = scope.charts.length;
                 var items = d3.select(".items-slider");
                 //scope.PCAplot = PCAplot;
                 // console.log (scope.charts);
                 function setTransform() {
                     //items.style("transform",'translate3d(' + (-pos * items.node().offsetWidth) + 'px,0,0)');
-                    items.style("transform",'translate3d(0,' + (-(scope.pos-scope.limitup) * items.node().offsetHeight) + 'px,0)');
+                    items.style("transform",'translate3d(0,' + (-(scope.pos) * items.node().offsetHeight) + 'px,0)');
+                    // items.style("transform",'translate3d(0,' + (-(scope.pos-scope.limitup) * items.node().offsetHeight) + 'px,0)');
                 }
 
-                scope.$watch("pos",function(){
-                    setTransform();
-                    //PCAplot.alternativeupdate( scope.charts[scope.pos]);
-                    PCAplot.prop.mspec = scope.charts[scope.pos];
-                    scope.limitup = Math.min(scope.limitup,(scope.pos > scope.limit)? (scope.pos-2) : 0);
-                    // scope.charts[scope.pos].vlSpec.config.typer = PCAplot.prop.mspec.config.typer;
-                    setTransform();
-                    Pills.select(scope.charts[scope.pos].vlSpec);
+                // const chartsWatcher =scope.$watch("charts",function(){
+                //     console.log(scope.charts)
+                //     if (scope.charts) {
+                //         update_buffer(scope.pos);
+                //         setTransform();
+                //     }
+                // },true);
+
+                const posWatcher = scope.$watch("pos",function(){
+                    console.log(scope.pos)
+                    if (scope.pos!=-1) {
+                        setTransform();
+                        //PCAplot.alternativeupdate( scope.charts[scope.pos]);
+                        PCAplot.prop.mspec = scope.charts[scope.pos];
+                        update_buffer(scope.pos);
+                        scope.limitup = scope.pos;//Math.min(scope.limitup,(scope.pos > scope.limit)? (scope.pos-2) : 0);
+                        // scope.charts[scope.pos].vlSpec.config.typer = PCAplot.prop.mspec.config.typer;
+                        console.log(scope.buffer[scope.pos])
+                        setTransform();
+                        Pills.select(scope.charts[scope.pos].vlSpec);
+                    }
                 },true);
+
 
                 scope.prev = function() {
                     scope.pos = Math.max(scope.pos - 1, 0);
-                    scope.limitup = Math.min(scope.limitup,(scope.pos > scope.limit)? (scope.pos-2) : 0);
+                    if (scope.pos != scope.limitup)
+                        update_buffer(scope.limitup, scope.pos);
+                    scope.limitup = scope.pos;//Math.min(scope.limitup,(scope.pos > scope.limit)? (scope.pos-2) : 0);
                     Logger.logInteraction(Logger.actions.MAINVIEW_NAVIGATION, scope.pos,{
                         val:{spec:this.charts[scope.pos].vlSpec,query:this.charts[scope.pos].query},
                         time:new Date().getTime()});
@@ -291,19 +598,30 @@ angular.module('pcagnosticsviz')
 
                 scope.next = function () {
                     scope.pos = Math.min(scope.pos + 1, itemCount - 1);
-                    if (scope.pos > scope.limit-1) {
-                        scope.limitup = Math.min(scope.limitup,(scope.pos > scope.limit)? (scope.pos-2) : 0);
-                        scope.limit = scope.pos + 2;
-                    }
+                    scope.limitup = scope.pos;
+                    console.log("--------"+scope.limitup)
+                    if (scope.pos != scope.limitup)
+                        update_buffer(scope.pos);
+                    // if (scope.pos > scope.limit-1) {
+                    //     scope.limitup = scope.pos//Math.min(scope.limitup,(scope.pos > scope.limit)? (scope.pos-2) : 0);
+                        // scope.limit = 3//scope.pos + 2;
+                    // }
                     Logger.logInteraction(Logger.actions.MAINVIEW_NAVIGATION, scope.pos,{
                         val:{spec:this.charts[scope.pos].vlSpec,query:this.charts[scope.pos].query},
                         time:new Date().getTime()});
                     setTransform();
                 };
+                function init_buffer() {
+                        scope.buffer = new Array(scope.charts.length);
+                }
+                function update_buffer(new_pos) {
+                    init_buffer();
+                    scope.buffer[new_pos] = _.cloneDeep( scope.charts[new_pos]);
+                }
 
                 scope.$on('$destroy', function() {
                     console.log('guideplot destroyed');
-                    scope.charts = null;
+                    posWatcher();
                 });
             }
         }
@@ -317,7 +635,7 @@ angular.module('pcagnosticsviz')
             templateUrl: 'components/d3-slidegraph/slide-com.html',
             replace: true,
             scope: {
-                chart: '=', // Two-way
+                chart: '<', // Two-way
             },
 
             link: function postLink(scope, element) {
@@ -699,6 +1017,20 @@ angular.module('pcagnosticsviz')
     }
 
 })();
+'use strict';
+
+angular.module('pcagnosticsviz')
+  .directive('configurationEditor', function() {
+    return {
+      templateUrl: 'components/configurationeditor/configurationeditor.html',
+      restrict: 'E',
+      scope: {},
+      controller: ["$scope", "Config", function($scope, Config) {
+        $scope.Config = Config;
+      }]
+    };
+  });
+
 var PCA = function(){
     this.scale = scale;
     this.pca = pca;
@@ -1437,6 +1769,20 @@ angular.module('pcagnosticsviz')
 'use strict';
 
 angular.module('pcagnosticsviz')
+  .directive('cqlQueryEditor', ["Spec", function(Spec) {
+    return {
+      templateUrl: 'components/cqlQueryEditor/cqlQueryEditor.html',
+      restrict: 'E',
+      scope: {},
+      link: function postLink(scope /*, element, attrs*/) {
+        scope.Spec = Spec;
+      }
+    };
+  }]);
+
+'use strict';
+
+angular.module('pcagnosticsviz')
   // TODO: rename to Query once it's complete independent from Polestar
   .service('Wildcards', ["ANY", "vl", "cql", "Dataset", "Alerts", function(ANY, vl, cql, Dataset, Alerts) {
     var Wildcards = {
@@ -1564,34 +1910,6 @@ angular.module('pcagnosticsviz')
 
     return Wildcards;
   }]);
-
-'use strict';
-
-angular.module('pcagnosticsviz')
-  .directive('cqlQueryEditor', ["Spec", function(Spec) {
-    return {
-      templateUrl: 'components/cqlQueryEditor/cqlQueryEditor.html',
-      restrict: 'E',
-      scope: {},
-      link: function postLink(scope /*, element, attrs*/) {
-        scope.Spec = Spec;
-      }
-    };
-  }]);
-
-'use strict';
-
-angular.module('pcagnosticsviz')
-  .directive('configurationEditor', function() {
-    return {
-      templateUrl: 'components/configurationeditor/configurationeditor.html',
-      restrict: 'E',
-      scope: {},
-      controller: ["$scope", "Config", function($scope, Config) {
-        $scope.Config = Config;
-      }]
-    };
-  });
 
 'use strict';
 
@@ -2328,7 +2646,7 @@ angular.module('pcagnosticsviz')
         var keys =  _.keys(Schema.schema.definitions.Encoding.properties).concat([ANY+0]);
         var colordot = '#4682b4';
         var states = {IDLE:0,GENERATE_GUIDE:1,GENERATE_ALTERNATIVE:2,FREE:3, UPDATEPOSITION:4};
-        var limitDefault = 10;
+        var limitDefault = Infinity;
         function instantiate() {
             return {
                 data: Config.data,
@@ -2450,28 +2768,34 @@ angular.module('pcagnosticsviz')
                     matrix = data2Num(data);
 
                     outlier = brand_names.map(function (d, i) {
-                        var outliernum = 0,
-                            row = matrix.map(function (r) {
-                                return r[i]
-                            }),
-                            q1 = ss.quantile(row, 0.25),
-                            q3 = ss.quantile(row, 0.75),
-                            iqr = (q3 - q1) * 1.5;
-                        //iqr = Dataset.schema.fieldSchema(d).stats.stdev*1.35;
-                        // console.log('q1: '+q1+'q3: '+q3+'iqr: '+iqr);
-                        Dataset.schema.fieldSchema(d).stats.q1 = q1;
-                        Dataset.schema.fieldSchema(d).stats.q3 = q3;
-                        Dataset.schema.fieldSchema(d).stats.q1iqr = Math.max(q1 - iqr, ss.min(row));
-                        Dataset.schema.fieldSchema(d).stats.q3iqr = Math.min(q3 + iqr, ss.max(row));
-                        Dataset.schema.fieldSchema(d).stats.iqr = iqr;
-                        //console.log(Dataset.schema.fieldSchema(d).stats);
-                        row.forEach(function (e) {
-                            if ((e < q1 - 2 * iqr) || (e > q3 + 2 * iqr))
-                                outliernum += 10;
-                            else if ((e < q1 - iqr) || (e > q3 + iqr))
-                                outliernum = outliernum + 1;
-                        });
-                        return outliernum;
+                        // var outliernum = 0,
+                        //     row = matrix.map(function (r) {
+                        //         return r[i]
+                        //     }),
+                        //     q1 = ss.quantile(row, 0.25),
+                        //     q3 = ss.quantile(row, 0.75),
+                        //     iqr = (q3 - q1) * 1.5;
+                        // //iqr = Dataset.schema.fieldSchema(d).stats.stdev*1.35;
+                        // // console.log('q1: '+q1+'q3: '+q3+'iqr: '+iqr);
+                        // Dataset.schema.fieldSchema(d).stats.q1 = q1;
+                        // Dataset.schema.fieldSchema(d).stats.q3 = q3;
+                        // Dataset.schema.fieldSchema(d).stats.q1iqr = Math.max(q1 - iqr, ss.min(row));
+                        // Dataset.schema.fieldSchema(d).stats.q3iqr = Math.min(q3 + iqr, ss.max(row));
+                        // Dataset.schema.fieldSchema(d).stats.iqr = iqr;
+                        // //console.log(Dataset.schema.fieldSchema(d).stats);
+                        // row.forEach(function (e) {
+                        //     if ((e < q1 - 2 * iqr) || (e > q3 + 2 * iqr))
+                        //         outliernum += 10;
+                        //     else if ((e < q1 - iqr) || (e > q3 + iqr))
+                        //         outliernum = outliernum + 1;
+                        // });
+                        if (Dataset.schema.fieldSchema(d).type !== "quantitative") {
+                            Dataset.schema.fieldSchema(d).stats.outlier = 0;
+                            Dataset.schema.fieldSchema(d).stats.variance = 0;
+                            Dataset.schema.fieldSchema(d).stats.modeskew = 0;
+                            Dataset.schema.fieldSchema(d).stats.multimodality = 0;
+                        }
+                        return Dataset.schema.fieldSchema(d).stats.outlier;
                     });
                     var outlier_scale = d3v4.scaleLinear().domain(d3.extent(outlier)).range([0,1]);
                     outlier = outlier.map(o=>outlier_scale(o));
@@ -3390,7 +3714,7 @@ angular.module('pcagnosticsviz')
                 chart.vlSpec.config.typer = {type: prop.type,val: (prop.dim>1?0:getTypeVal(undefined,d.fieldDefs||d))};
                 return chart;});
 
-            prop.previewcharts = prop.charts.map(function (d) {
+            prop.previewcharts = prop.charts.map(function (d,i) {
                 var thum =_.cloneDeep(d);
                 // console.log(d);
                 var typer = {};
@@ -3415,6 +3739,7 @@ angular.module('pcagnosticsviz')
                 if (d.fieldSet[0].type!=="temporal"){
                     thum.vlSpec.config.axis.ticks = false;
                 }
+                thum.order = i;
                 return thum;});
             var pos = 0;
             pos = findinList(axis,prop.charts);
@@ -3823,7 +4148,7 @@ angular.module('pcagnosticsviz')
                     chart.vlSpec.config.typer = {type: prop.type,val: getTypeVal(undefined,d.fieldDefs||d)};
                     return chart; });
             //while (nprop[nprop.length-1])
-            nprop.previewcharts = nprop.charts.map(function(d) {
+            nprop.previewcharts = nprop.charts.map(function(d,i) {
                 var thum =_.cloneDeep(d);
                 var typer = {};
                 typer[prop.type] = d.vlSpec.config.typer.val[prop.type];
@@ -3853,6 +4178,7 @@ angular.module('pcagnosticsviz')
                 if (d.fieldSet[0].type!=="temporal"){
                     thum.vlSpec.config.axis.ticks = false;
                 }
+                thum.order = i;
                 return thum;});
             var fields = nprop.fieldDefs.map(function(f){return f.field});
             nprop.pos = findinList(fields,nprop.charts);
@@ -4217,6 +4543,14 @@ angular.module('pcagnosticsviz')
         function combineName (flieds){
             return flieds.map(d=>d.replace(/-/g,'')).naturalSort().join('-');
         }
+
+        /**
+         *
+         * @param primfield
+         * @param dataschema
+         * @param data
+         * @param maxCombine
+         */
         function calscagnotic (primfield,dataschema,data,maxCombine){
             importScripts("https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.20/require.min.js");
             const collator = new Intl.Collator(undefined, {numeric: true, sensitivity: 'base'});
@@ -4267,7 +4601,8 @@ angular.module('pcagnosticsviz')
                     var matrix = data.map(function(d){return fields.map(f => d[f])});
                     try {
                         var scag = this.scagnostics(matrix,{
-                            binType: 'hexagon',
+                            // isBinned: false,
+                            binType: 'leader',
                             startBinGridSize: 40});
                         if (!isNaN(scag.skinnyScore))
                             return {
@@ -4382,6 +4717,12 @@ angular.module('pcagnosticsviz')
                 PCAplot.workerScagnotic = Webworker.create(calscagnotic, {async: true});
                 PCAplot.workerScagnotic.run(primfield, Dataset.schema, Dataset.data).then(function (result) {
                     console.log("----------done---------------");
+                    // PCAplot.firstrun = true;
+                    // if(PCAplot.dim==1)
+                    // PCAplot.plot(Dataset.schema.fieldSchemas.map(function(d){
+                    //     var tem = {field: d.field};
+                    //     tem[d.field] = d.scag;
+                    //     return tem;}),PCAplot.dim);
                     PCAplot.workerScagnotic = undefined;
                 }, null, function (progress) {
                     if (Dataset.schema.fieldSchema(progress.source).scag === undefined)
@@ -4508,6 +4849,7 @@ angular.module('pcagnosticsviz')
     $scope.PCAplot= PCAplot;
     $scope.showEncoding = false;
     $scope.showExtraGuide = false;
+    $scope.themeDrak = false;
       $scope.fieldAdd = function(fieldDef) {
           Pills.add(fieldDef);
       };
@@ -4590,6 +4932,10 @@ angular.module('pcagnosticsviz')
       if (modalId == 'bookmark-list') {
         Logger.logInteraction(Logger.actions.BOOKMARK_OPEN);
       }
+    };
+
+    $scope.changetheme = function(){
+        $scope.themeDrak = !$scope.themeDrak;
     };
 
     if (Bookmarks.isSupported) {
@@ -5007,13 +5353,13 @@ angular.module('pcagnosticsviz')
     return Alternatives;
   }]);
 
-angular.module("pcagnosticsviz").run(["$templateCache", function($templateCache) {$templateCache.put("app/main/main.html","<div ng-controller=\"MainCtrl\" class=\"flex-root vflex full-width full-height\" ng-mousedown=\"onMouseDownLog($event)\" ng-mouseenter=\"onMouseEnterLog($event)\" ng-mouseover=\"onMouseOverLog($event)\"><div class=\"full-width no-shrink\"><div class=\"card top-card no-right-margin no-top-margin\"><div class=\"hflex\"><div id=\"logo\" ng-click=\"Logger.export()\"></div><div class=\"pane\"><div class=\"controls\"><a ng-show=\"Bookmarks.isSupported\" class=\"command\" ng-click=\"showModal(\'bookmark-list\')\"><i class=\"fa fa-bookmark\"></i> Bookmarks ({{Bookmarks.list.length}})</a> <a class=\"command\" ng-click=\"chron.undo()\" ng-class=\"{disabled: !canUndo}\"><i class=\"fa fa-undo\"></i> Undo</a> <a class=\"command\" ng-click=\"chron.redo()\" ng-class=\"{disabled: !canRedo}\"><i class=\"fa fa-repeat\"></i> Redo</a></div></div></div></div><alert-messages></alert-messages></div><div class=\"hflex full-width main-panel grow-1\"><div class=\"pane data-pane noselect\"><div class=\"card no-top-margin data-card abs-100 modifedside\"><div class=\"sidebar-header\" ng-if=\"!embedded\"><h2>Data</h2><dataset-selector class=\"right\"></dataset-selector><div class=\"current-dataset\" title=\"{{Dataset.currentDataset.name}}\"><i class=\"fa fa-database\"></i> <span class=\"dataset-name\">{{Dataset.currentDataset.name}}</span></div></div><h3>Overview</h3><bi-plot></bi-plot><h3>Exemplar plots</h3><div class=\"scroll-y-nox scroll-y\"><vl-plot-group ng-if=\"PCAplot.chart\" class=\"main-vl-plot-group card no-shrink guideplot\" ng-repeat=\"chart in PCAplot.charts\" ng-class=\"{square: PCAplot.dim}\" ng-click=\"PCAplot.prop2spec(chart.prop)\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"true\" show-axis-prop=\"false\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\" style=\"margin-top: 0px; margin-bottom: 5px;\"></vl-plot-group><div class=\"hflex full-width\"><h3>Fields</h3><div class=\"header-drop active\"><i class=\"fa fa-caret-down droplist\" ng-click=\"fieldShow = !fieldShow\"></i></div></div><div ng-show=\"fieldShow\"><schema-list field-defs=\"Dataset.schema.fieldSchemas\" order-by=\"Dataset.fieldOrder\" show-count=\"true\" filter-manager=\"FilterManager\" show-add=\"true\"></schema-list></div><div ng-show=\"WildcardsShow\"><schema-list field-defs=\"Wildcards.list\" show-add=\"true\" show-drop=\"true\"></schema-list></div></div></div>Ma</div><div class=\"pane vis-pane\"><div class=\"vis-pane-container abs-100\" ng-class=\"{\'scroll-y\': !hideExplore || !Spec.isSpecific, \'no-scroll-y\': hideExplore && Spec.isSpecific}\"><div class=\"mainareacustom full-width\"><div class=\"pane encoding-pane\" style=\"min-height: 200px;\"><shelves spec=\"Spec.spec\" filter-manager=\"FilterManager\" preview=\"false\" support-any=\"true\" ng-class=\"shelvescustom\"></shelves><shelves class=\"preview\" ng-show=\"Spec.previewedSpec\" spec=\"Spec.previewedSpec || Spec.emptySpec\" preview=\"true\" support-any=\"true\"></shelves></div><slide-graph ng-if=\"PCAplot.prop.charts\" charts=\"PCAplot.prop.charts\" pos=\"PCAplot.prop.pos\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></slide-graph></div><div class=\"alternatives-pane card\" ng-class=\"{collapse: hideExplore}\" ng-if=\"Spec.isSpecific && !Spec.isEmptyPlot\"><div class=\"alternatives-header\"><div class=\"right alternatives-jump\"><a class=\"toggle-hide-explore\" ng-click=\"toggleHideExplore()\"><span ng-show=\"hideExplore\">Show <i class=\"fa fa-toggle-up\"></i></span> <span ng-show=\"!hideExplore\">Hide <i class=\"fa fa-toggle-down\"></i></span></a></div><h2>Expanded views</h2></div><div class=\"alternatives-content\" ng-if=\"!hideExplore\"><vl-plot-group-list ng-repeat=\"alternative in PCAplot.alternatives\" ng-if=\"alternative.charts.length > 0 && (!$parent.alternativeType || $parent.alternativeType === alternative.type)\" id=\"alternatives-{{alternative.type}}\" list-title=\"alternative.title\" charts=\"alternative.charts\" enable-pills-preview=\"true\" priority=\"$index * 1000\" initial-limit=\"alternative.limit || null\" post-select-action=\"$parent.scrollToTop()\" show-query-select=\"true\" query=\"alternative.query\"></vl-plot-group-list></div></div></div></div><div class=\"pane guidemenu grow-1\" ng-if=\"showExtraGuide||PCAplot.prop\"><guide-menu prop=\"PCAplot.prop\" priority=\"2\" marks=\"PCAplot.marks\" props=\"PCAplot.types\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></guide-menu></div></div><div class=\"hflex full-width dev-panel\" ng-if=\"showDevPanel\"><div class=\"pane\" ng-show=\"consts.logToWebSql\"><div class=\"card\"><div>userid: {{Logger.userid}}</div><button ng-click=\"Logger.clear()\">Clear logs</button><br><button ng-click=\"Logger.export()\">Download logs</button></div></div><div class=\"pane config-pane\"><div class=\"card scroll-y abs-100\"><configuration-editor></configuration-editor></div></div><div class=\"pane vl-pane\"><cql-query-editor></cql-query-editor></div><div class=\"pane vg-pane\"><vg-spec-editor></vg-spec-editor></div></div><bookmark-list highlighted=\"Fields.highlighted\" post-select-action=\"scrollToTop\"></bookmark-list><dataset-modal></dataset-modal></div>");
+angular.module("pcagnosticsviz").run(["$templateCache", function($templateCache) {$templateCache.put("app/main/main.html","<div ng-controller=\"MainCtrl\" ng-class=\"{light: themeDrak}\" class=\"flex-root vflex full-width full-height\" ng-mousedown=\"onMouseDownLog($event)\" ng-mouseenter=\"onMouseEnterLog($event)\" ng-mouseover=\"onMouseOverLog($event)\"><div class=\"full-width no-shrink\"><div class=\"card top-card no-right-margin no-top-margin\"><div class=\"hflex\" style=\"justify-content: space-between;\"><div id=\"logo\" ng-click=\"Logger.export()\"></div><div class=\"pane\"><div class=\"controls\"><a ng-show=\"Bookmarks.isSupported\" class=\"command\" ng-click=\"showModal(\'bookmark-list\')\"><i class=\"fa fa-bookmark\"></i> Bookmarks ({{Bookmarks.list.length}})</a> <a class=\"command\" ng-click=\"chron.undo()\" ng-class=\"{disabled: !canUndo}\"><i class=\"fa fa-undo\"></i> Undo</a> <a class=\"command\" ng-click=\"chron.redo()\" ng-class=\"{disabled: !canRedo}\"><i class=\"fa fa-repeat\"></i> Redo</a></div></div><div class=\"pane\"><div class=\"controls\"><a class=\"command\" ng-if=\"themeDrak\" ng-click=\"changetheme()\"><i class=\"fa fa-moon-o\"></i> Drak</a> <a class=\"command\" ng-if=\"!themeDrak\" ng-click=\"changetheme()\"><i class=\"fa fa-sun-o\"></i> Light</a></div></div></div></div><alert-messages></alert-messages></div><div class=\"hflex full-width main-panel grow-1\"><div class=\"pane data-pane noselect\"><div class=\"card no-top-margin data-card abs-100 modifedside\"><div class=\"sidebar-header\" ng-if=\"!embedded\"><h2>Data</h2><dataset-selector class=\"right\"></dataset-selector><div class=\"current-dataset\" title=\"{{Dataset.currentDataset.name}}\"><i class=\"fa fa-database\"></i> <span class=\"dataset-name\">{{Dataset.currentDataset.name}}</span></div></div><h3>Overview</h3><bi-plot></bi-plot><h3>Exemplar plots</h3><div class=\"scroll-y-nox scroll-y\"><vl-plot-group ng-if=\"PCAplot.chart\" class=\"main-vl-plot-group card no-shrink guideplot\" ng-repeat=\"chart in PCAplot.charts\" ng-class=\"{square: PCAplot.dim}\" ng-click=\"PCAplot.prop2spec(chart.prop)\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"true\" show-axis-prop=\"false\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\" style=\"margin-top: 0px; margin-bottom: 5px;\"></vl-plot-group><div class=\"hflex full-width\"><h3>Fields</h3><div class=\"header-drop active\"><i class=\"fa fa-caret-down droplist\" ng-click=\"fieldShow = !fieldShow\"></i></div></div><div ng-show=\"fieldShow\"><schema-list field-defs=\"Dataset.schema.fieldSchemas\" order-by=\"Dataset.fieldOrder\" show-count=\"true\" filter-manager=\"FilterManager\" show-add=\"true\"></schema-list></div><div ng-show=\"WildcardsShow\"><schema-list field-defs=\"Wildcards.list\" show-add=\"true\" show-drop=\"true\"></schema-list></div></div></div>Ma</div><div class=\"pane vis-pane\"><div class=\"vis-pane-container abs-100\" ng-class=\"{\'scroll-y\': !hideExplore || !Spec.isSpecific, \'no-scroll-y\': hideExplore && Spec.isSpecific}\"><div class=\"mainareacustom full-width\"><div class=\"pane encoding-pane\" style=\"min-height: 200px;\"><shelves spec=\"Spec.spec\" filter-manager=\"FilterManager\" preview=\"false\" support-any=\"true\" ng-class=\"shelvescustom\"></shelves><shelves class=\"preview\" ng-show=\"Spec.previewedSpec\" spec=\"Spec.previewedSpec || Spec.emptySpec\" preview=\"true\" support-any=\"true\"></shelves></div><slide-graph ng-if=\"PCAplot.prop.charts\" charts=\"PCAplot.prop.charts\" pos=\"PCAplot.prop.pos\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></slide-graph></div><div class=\"alternatives-pane card\" ng-class=\"{collapse: hideExplore}\" ng-if=\"Spec.isSpecific && !Spec.isEmptyPlot\"><guide-menu prop=\"PCAplot.prop\" priority=\"2\" marks=\"PCAplot.marks\" props=\"PCAplot.types\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></guide-menu></div></div></div><div class=\"pane guidemenu grow-1\" ng-if=\"showExtraGuide||PCAplot.prop\"><div class=\"alternatives-pane card\" ng-class=\"{collapse: hideExplore}\" ng-if=\"Spec.isSpecific && !Spec.isEmptyPlot\"><div class=\"alternatives-header\"><div class=\"right alternatives-jump\"><a class=\"toggle-hide-explore\" ng-click=\"toggleHideExplore()\"><span ng-show=\"hideExplore\">Show <i class=\"fa fa-toggle-up\"></i></span> <span ng-show=\"!hideExplore\">Hide <i class=\"fa fa-toggle-down\"></i></span></a></div><h2>Expanded views</h2></div><div class=\"alternatives-content scroll-y\" ng-if=\"!hideExplore\"><vl-plot-group-list ng-repeat=\"alternative in PCAplot.alternatives\" ng-if=\"alternative.charts.length > 0 && (!$parent.alternativeType || $parent.alternativeType === alternative.type)\" id=\"alternatives-{{alternative.type}}\" list-title=\"alternative.title\" charts=\"alternative.charts\" enable-pills-preview=\"true\" priority=\"$index * 1000\" initial-limit=\"alternative.limit || null\" post-select-action=\"$parent.scrollToTop()\" show-query-select=\"true\" query=\"alternative.query\"></vl-plot-group-list></div></div></div></div><div class=\"hflex full-width dev-panel\" ng-if=\"showDevPanel\"><div class=\"pane\" ng-show=\"consts.logToWebSql\"><div class=\"card\"><div>userid: {{Logger.userid}}</div><button ng-click=\"Logger.clear()\">Clear logs</button><br><button ng-click=\"Logger.export()\">Download logs</button></div></div><div class=\"pane config-pane\"><div class=\"card scroll-y abs-100\"><configuration-editor></configuration-editor></div></div><div class=\"pane vl-pane\"><cql-query-editor></cql-query-editor></div><div class=\"pane vg-pane\"><vg-spec-editor></vg-spec-editor></div></div><bookmark-list highlighted=\"Fields.highlighted\" post-select-action=\"scrollToTop\"></bookmark-list><dataset-modal></dataset-modal></div>");
 $templateCache.put("components/configurationeditor/configurationeditor.html","<form><pre>{{ Config.config | compactJSON }}</pre></form>");
 $templateCache.put("components/cqlQueryEditor/cqlQueryEditor.html","<div class=\"card scroll-y abs-100 vflex\"><div><div class=\"right command\"><a ui-zeroclip=\"\" zeroclip-model=\"Spec.query | compactJSON\">Copy</a></div><h3>CompassQL Query</h3></div><textarea class=\"cqlquery flex-grow-1 full-height\" json-input=\"\" type=\"text\" ng-model=\"Spec.cleanQuery\"></textarea></div>");
+$templateCache.put("components/d3-biplot/bi-plot.html","<svg id=\"bi-plot\" width=\"100%\" class=\"biplot\"><g id=\"bi-plot2\"></g><rect class=\"overlay\"></rect><g id=\"bi-plot-g\"><g id=\"bi-plot-axis\"></g><g id=\"bi-plot-point\"></g></g></svg>");
 $templateCache.put("components/d3-guideplot/gplot.html","<div class=\"gplot\" ng-click=\"explore()\"><svg class=\"gplotSvg\" id=\"gplot{{pcaDef}}\"></svg></div>");
 $templateCache.put("components/d3-guideplot/guide-plot.html","<div id=\"guide-plot-group\" class=\"guideplot\"><g-plot ng-repeat=\"pcaDef in pcaDefs\" pca-def=\"pcaDef\" id=\"{{pcaDef}}\"></g-plot></div>");
-$templateCache.put("components/d3-biplot/bi-plot.html","<svg id=\"bi-plot\" width=\"100%\" class=\"biplot\"><g id=\"bi-plot2\"></g><rect class=\"overlay\"></rect><g id=\"bi-plot-g\"><g id=\"bi-plot-axis\"></g><g id=\"bi-plot-point\"></g></g></svg>");
-$templateCache.put("components/d3-slidegraph/slide-com.html","<li class=\"item wrap\"><vl-plot-group class=\"item\" chart=\"chart\" show-bookmark=\"true\" show-debug=\"false\" show-select=\"false\" show-axis-prop=\"false\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"true\"></vl-plot-group></li>");
-$templateCache.put("components/d3-slidegraph/slide-graph.html","<div class=\"slideGraph card no-top-margin\"><h2>Focus view</h2><div class=\"wrap\"><button class=\"butSlider\" ng-click=\"prev()\"><i class=\"fa fa-angle-double-up\"></i></button><div class=\"scroller\"><ul class=\"items-slider\"><slide-com ng-repeat=\"chart in charts | limitTo: limit : limitup\" chart=\"chart\"></slide-com></ul></div><button class=\"butSlider\" ng-click=\"next()\"><i class=\"fa fa-angle-double-down\"></i></button></div></div>");
-$templateCache.put("components/guidemenu/guideMenu.html","<div class=\"contain\"><div class=\"sidebar-header\"><h2>Guided navigation</h2><div class=\"features\"><div id=\"typeselectcontain\"><label for=\"typeselect\">Feature type</label><select class=\"typeselect\" id=\"typeselect\" ng-model=\"prop.type\" ng-options=\"type for type in props\" ng-change=\"typeChange()\"></select></div><div><label for=\"markselect\">Abstraction</label><select class=\"markselect\" id=\"markselect\" ng-model=\"prop.mark\" ng-options=\"item.mark as item.label for item in marks\" ng-change=\"markChange()\"></select></div></div></div><div class=\"thum\"><div class=\"scroll-y\"><vl-plot-group ng-if=\"prop.previewcharts\" class=\"main-vl-plot-group card thumplot no-shrink\" ng-class=\"{\'square\':prop.dim, \'active\': prop.pos== $index + limitup}\" ng-repeat=\"chart in prop.previewcharts| limitTo: limit : limitup\" ng-click=\"previewSlider($index)\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"false\" show-axis-prop=\"true\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\" priority=\"priority * $index\"></vl-plot-group><a ng-click=\"increaseLimit()\"><div class=\"vis-list-more\" ng-show=\"limit < prop.previewcharts.length\">Load more...</div></a></div></div></div>");
+$templateCache.put("components/guidemenu/guideMenu.html","<div class=\"contain\"><div class=\"sidebar-header\"><h2>Guided navigation</h2><div class=\"features\"><div id=\"typeselectcontain\"><label for=\"typeselect\">Feature type</label><select class=\"typeselect\" id=\"typeselect\" ng-model=\"prop.type\" ng-options=\"type for type in props\" ng-change=\"typeChange()\"></select></div><div><label for=\"markselect\">Abstraction</label><select class=\"markselect\" id=\"markselect\" ng-model=\"prop.mark\" ng-options=\"item.mark as item.label for item in marks\" ng-change=\"markChange()\"></select></div></div></div><div class=\"thum\"><svg viewbox=\"0 0 1200 1200\" width=\"100%\" height=\"100%\" preserveaspectratio=\"xMidYMid meet\"><g class=\"oneDimentional\"><g class=\"twoDimentional\"></g><g class=\"foreignObject\" ng-if=\"prop.dim==0\" ng-repeat=\"chart in prop.previewcharts\" fo-repeat-directive=\"\"><foreignobject x=\"-135\" y=\"-65\" width=\"270\" height=\"130\"><vl-plot-group ng-if=\"prop.previewcharts\" class=\"main-vl-plot-group card thumplot no-shrink\" ng-class=\"{\'square\':prop.dim, \'active\': prop.pos== $index + limitup}\" ng-click=\"previewSlider($index)\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"false\" show-axis-prop=\"true\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\" priority=\"priority * $index\"></vl-plot-group></foreignobject></g></g></svg></div></div>");
+$templateCache.put("components/d3-slidegraph/slide-com.html","<li class=\"item wrap\"><vl-plot-group ng-if=\"chart!=undefined\" class=\"item\" chart=\"chart\" show-bookmark=\"true\" show-debug=\"false\" show-select=\"false\" show-axis-prop=\"false\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"true\"></vl-plot-group></li>");
+$templateCache.put("components/d3-slidegraph/slide-graph.html","<div class=\"slideGraph card no-top-margin\"><h2>Focus view</h2><div class=\"wrap\"><button class=\"butSlider\" ng-click=\"prev()\"><i class=\"fa fa-angle-double-up\"></i></button><div class=\"scroller\"><ul class=\"items-slider\"><slide-com ng-repeat=\"chart in buffer track by $index\" chart=\"chart\"></slide-com></ul></div><button class=\"butSlider\" ng-click=\"next()\"><i class=\"fa fa-angle-double-down\"></i></button></div></div>");
 $templateCache.put("components/vgSpecEditor/vgSpecEditor.html","<div class=\"card scroll-y abs-100 vflex no-right-margin\"><div><div class=\"right\"><a class=\"command\" ui-zeroclip=\"\" zeroclip-model=\"Spec.chart.vgSpec | compactJSON\">Copy</a><lyra-export></lyra-export></div><h3>Vega Specification</h3></div><textarea class=\"vgspec flex-grow-1\" json-input=\"\" disabled=\"disabled\" type=\"text\" ng-model=\"Spec.chart.vgSpec\"></textarea></div>");}]);
