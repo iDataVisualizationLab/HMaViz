@@ -200,7 +200,7 @@ angular.module('pcagnosticsviz')
                 let generalattr ={
                     svg: d3.select('.thum').select('svg'),
                     g: d3.select('.thum').select('.oneDimentional'),
-                    margin: {left:20, top: 75, bottom:20, right:20},
+                    margin: {left:20, top: 75, bottom:20    , right:20},
                     width: 1200,
                     height: 1200,
                     w: function() {return this.width-this.margin.left-this.margin.right},
@@ -423,7 +423,7 @@ angular.module('pcagnosticsviz')
                         generalattr.force.stop();
                     }
                     // init
-                    generalattr.height = generalattr.width;
+                    generalattr.height = generalattr.w()+generalattr.margin.top+generalattr.margin.bottom;
                     generalattr.svg.attr('viewBox',[0,0,generalattr.width,generalattr.height]);
                     generalattr.g = d3.select('.thum').select('.twoDimentional');
 
@@ -438,14 +438,14 @@ angular.module('pcagnosticsviz')
                         traits = Dataset.schema.fieldSchemas.map(d=>{return {text:d.field,value:0}});
 
                     traits.forEach(function(trait) {
-                        trait.value = d3.sum($scope.prop.previewcharts.filter(pc=> pc.fieldSet.find(f=>f.field==trait.text) !== undefined ).map(d=>Math.abs(d.vlSpec.config.typer.val[d.vlSpec.config.typer.type])));
+                        trait.value = d3.sum($scope.prop.previewcharts.filter(pc=> pc.fieldSet.find(f=> f.field === trait.text) !== undefined ).map(d=>Math.abs(d.vlSpec.config.typer.val[d.vlSpec.config.typer.type])));
                         domainByTrait[trait] = [Dataset.schema.fieldSchema(trait.text).stats.min,Dataset.schema.fieldSchema(trait.text).stats.max];
 
                     });
                     traits.sort((a,b)=>b.value-a.value);
 
-                    generalattr.xScale = d3v4.scaleBand().range([0, generalattr.w()]).domain(traits.map(d=>d.text)).paddingInner(0.05);
-                    generalattr.yScale = d3v4.scaleBand().range([0, generalattr.h()]).domain(traits.map(d=>d.text));
+                    generalattr.xScale = d3v4.scaleBand().paddingInner(0.05).paddingOuter(0.5).range([0, generalattr.w()]).round(true).domain(traits.map(d=>d.text));
+                    generalattr.yScale = d3v4.scaleBand().paddingInner(0.05).paddingOuter(0.5).range([0, generalattr.h()]).round(true).domain(traits.map(d=>d.text));
 
                     let x = d3v4.scaleLinear()
                         .range([0, generalattr.xScale.bandwidth()]);
@@ -1027,6 +1027,20 @@ angular.module('pcagnosticsviz')
     }
 
 })();
+'use strict';
+
+angular.module('pcagnosticsviz')
+  .directive('cqlQueryEditor', ["Spec", function(Spec) {
+    return {
+      templateUrl: 'components/cqlQueryEditor/cqlQueryEditor.html',
+      restrict: 'E',
+      scope: {},
+      link: function postLink(scope /*, element, attrs*/) {
+        scope.Spec = Spec;
+      }
+    };
+  }]);
+
 var PCA = function(){
     this.scale = scale;
     this.pca = pca;
@@ -1765,16 +1779,16 @@ angular.module('pcagnosticsviz')
 'use strict';
 
 angular.module('pcagnosticsviz')
-  .directive('cqlQueryEditor', ["Spec", function(Spec) {
+  .directive('configurationEditor', function() {
     return {
-      templateUrl: 'components/cqlQueryEditor/cqlQueryEditor.html',
+      templateUrl: 'components/configurationeditor/configurationeditor.html',
       restrict: 'E',
       scope: {},
-      link: function postLink(scope /*, element, attrs*/) {
-        scope.Spec = Spec;
-      }
+      controller: ["$scope", "Config", function($scope, Config) {
+        $scope.Config = Config;
+      }]
     };
-  }]);
+  });
 
 'use strict';
 
@@ -1906,20 +1920,6 @@ angular.module('pcagnosticsviz')
 
     return Wildcards;
   }]);
-
-'use strict';
-
-angular.module('pcagnosticsviz')
-  .directive('configurationEditor', function() {
-    return {
-      templateUrl: 'components/configurationeditor/configurationeditor.html',
-      restrict: 'E',
-      scope: {},
-      controller: ["$scope", "Config", function($scope, Config) {
-        $scope.Config = Config;
-      }]
-    };
-  });
 
 'use strict';
 
@@ -2623,352 +2623,183 @@ angular.module('pcagnosticsviz').factory('NotifyingService', ["$rootScope", func
 'use strict';
 
 angular.module('pcagnosticsviz')
-  .service('Alternatives', ["ANY", "vl", "cql", "util", "Chart", "Dataset", function (ANY, vl, cql, util, Chart, Dataset) {
-    var Alternatives = {
-      alternativeEncodings: alternativeEncodings,
-      summarize: summarize,
-      disaggregate: disaggregate,
-      addCategoricalField: addCategoricalField,
-      addQuantitativeField: addQuantitativeField,
-      addTemporalField: addTemporalField,
-      histograms: histograms,
-
-      getHistograms: getHistograms,
-      getAlternatives: getAlternatives
+  .controller('MainCtrl', ["$scope", "$document", "Spec", "Dataset", "Wildcards", "Config", "consts", "Chronicle", "Logger", "Bookmarks", "Modals", "FilterManager", "NotifyingService", "PCAplot", function($scope, $document, Spec, Dataset, Wildcards,  Config, consts, Chronicle, Logger, Bookmarks, Modals, FilterManager,NotifyingService,PCAplot) {
+    $scope.Spec = Spec;
+    $scope.contain = {"bi-plot":'Overview',
+        "div":[{key:'guideplot',val:'Exemplar'},
+            {key:'thumplot',val:'Feature pannel'},
+            {key:'slideGraph',val:'Mainview view'},
+            {key:'alternatives-pane',val:'Expanded views'},
+            {key:'guidemenu',val:'Feature pannel'}],
+        'h3':'headertext',
+        "body":'body'};
+    $scope.Dataset = Dataset;
+    $scope.Wildcards = Wildcards;
+    $scope.Config = Config;
+    $scope.Logger = Logger;
+    $scope.Bookmarks = Bookmarks;
+    $scope.FilterManager = FilterManager;
+    $scope.consts = consts;
+    $scope.showDevPanel = false;
+    $scope.embedded = !!consts.embeddedData;
+    //  $scope.Biplot = Biplot;
+    $scope.hideExplore = false;
+    $scope.fieldShow = false;
+    $scope.WildcardsShow = false;
+    $scope.PCAplot= PCAplot;
+    $scope.showEncoding = false;
+    $scope.showExtraGuide = false;
+    $scope.themeDrak = false;
+      $scope.fieldAdd = function(fieldDef) {
+          Pills.add(fieldDef);
+      };
+    $scope.toggleHideExplore = function() {
+      $scope.hideExplore = !$scope.hideExplore;
+      if ($scope.hideExplore) {
+        Logger.logInteraction(Logger.actions.TOGGLE_HIDE_ALTERNATIVES, Spec.chart.shorthand);
+      } else {
+        Logger.logInteraction(Logger.actions.TOGGLE_SHOW_ALTERNATIVES, Spec.chart.shorthand);
+      }
     };
 
-    // TODO: import these from CQL once we export them!
-    var GROUP_BY_SIMILAR_ENCODINGS = [
-      cql.property.Property.FIELD,
-      cql.property.Property.AGGREGATE,
-      cql.property.Property.BIN,
-      cql.property.Property.TIMEUNIT,
-      cql.property.Property.TYPE,
-      {
-        property: cql.property.Property.CHANNEL,
-        replace: {
-          'x': 'xy', 'y': 'xy',
-          'color': 'style', 'size': 'style', 'shape': 'style', 'opacity': 'style',
-          'row': 'facet', 'column': 'facet'
-        }
-      }
-    ];
-
-    var GROUP_BY_SIMILAR_DATA_AND_TRANSFORM = [
-      cql.property.Property.FIELD,
-      cql.property.Property.AGGREGATE,
-      cql.property.Property.BIN,
-      cql.property.Property.TIMEUNIT,
-      cql.property.Property.TYPE,
-    ];
-
-    function getHistograms(query, chart, topItem) {
-      var alternative = {
-        type: 'histograms',
-        title: 'Univariate Summaries',
-        limit: 20,
-        query: histograms(query)
-      };
-      return [
-        util.extend(alternative, {
-          charts: executeQuery(alternative, chart, topItem)
-        })
-      ];
-    }
-
-
-
-    function getAlternatives(query, chart, topItem) {
-      var isAggregate = cql.query.spec.isAggregate(query.spec);
-
-      var alternativeTypes = [];
-
-      var hasT = false;
-      query.spec.encodings.forEach(function(encQ) {
-        if (encQ.type === vl.type.TEMPORAL) {
-          hasT = true;
-        }
-      });
-
-      var spec = chart.vlSpec;
-      var hasOpenPosition = !spec.encoding.x || !spec.encoding.y;
-      var hasStyleChannel = spec.encoding.color || spec.encoding.size || spec.encoding.shape || spec.encoding.opacity;
-      var hasOpenFacet = !spec.encoding.row || !spec.encoding.column;
-
-      if (!isAggregate) {
-        alternativeTypes.push({
-          type: 'summarize',
-          title: 'Summaries',
-          filterGroupBy: GROUP_BY_SIMILAR_DATA_AND_TRANSFORM,
-          limit: 2
+    $scope.alternativeType = null;
+    $scope.setAlternativeType = function(type, automatic) {
+      $scope.alternativeType = type;
+      if (!automatic) {
+        $scope.hideExplore = false;
+        Logger.logInteraction(Logger.actions.TOGGLE_SHOW_ALTERNATIVES, Spec.chart.shorthand);
+        Logger.logInteraction(Logger.actions.SET_ALTERNATIVES_TYPE, type, {
+          shorthand: Spec.chart.shorthand
         });
       }
+    };
 
-      if (hasOpenPosition) {
-        alternativeTypes.push({
-          type: 'addQuantitativeField',
-          title: 'Add Quantitative Field'
-        });
-      }
 
-      if (hasOpenPosition || !hasStyleChannel) {
-        alternativeTypes.push({
-          type: 'addCategoricalField',
-          title: 'Add Categorical Field'
-        });
-      }
-
-      if (!hasOpenPosition && !hasStyleChannel) {
-        alternativeTypes.push({
-          type: 'addQuantitativeField',
-          title: 'Add Quantitative Field'
-        });
-      }
-
-      if (!hasT && hasOpenPosition) {
-        alternativeTypes.push({
-          type: 'addTemporalField',
-          title: 'Add Temporal Field'
-        });
-      }
-
-      alternativeTypes.push({
-        type: 'alternativeEncodings',
-        title: 'Alternative Encodings',
-        filterGroupBy: GROUP_BY_SIMILAR_ENCODINGS
-      });
-
-      if (!(hasOpenPosition || !hasStyleChannel) && hasOpenFacet) {
-        alternativeTypes.push({
-          type: 'addCategoricalField',
-          title: 'Add Categorical Field'
-        });
-      }
-
-      // if (isAggregate) {
-      //   alternativeTypes.push({
-      //     type: 'summarize',
-      //     title: 'Summaries',
-      //     filterGroupBy: GROUP_BY_SIMILAR_DATA_AND_TRANSFORM
-      //   });
-
-      //   alternativeTypes.push({
-      //     type: 'disaggregate',
-      //     title: 'Disaggregate'
-      //   });
-      // }
-
-      return alternativeTypes.map(function(alternative) {
-        alternative.query = Alternatives[alternative.type](query);
-        alternative.charts = executeQuery(alternative, chart, topItem);
-        return alternative;
-      });
-    }
-
-    function executeQuery(alternative, mainChart, mainTopItem) {
-      var output = cql.query(alternative.query, Dataset.schema);
-
-      // Don't include the specified visualization in the recommendation list
-      return output.result.items
-        .filter(function(item) {
-          var topItem = item.getTopSpecQueryModel();
-          return !mainChart || !mainChart.shorthand ||(
-            topItem.toShorthand(alternative.filterGroupBy) !==
-            mainTopItem.toShorthand(alternative.filterGroupBy)
-          );
-        })
-        .map(Chart.getChart);
-    }
-
-    function makeEnumSpec(val) {
-      return cql.enumSpec.isEnumSpec(val) ? val : cql.enumSpec.SHORT_ENUM_SPEC;
-    }
-
-    /**
-     * Namespace for template methods for making a new SpecQuery
-     */
-    function alternativeEncodings(query) {
-      var newSpecQ = util.duplicate(query.spec);
-      newSpecQ.mark = makeEnumSpec(newSpecQ.mark);
-      newSpecQ.encodings.forEach(function (encQ) {
-        encQ.channel = makeEnumSpec(encQ.channel);
-      });
-      // TODO: extend config
-      return {
-        spec: newSpecQ,
-        groupBy: 'encoding',
-        // fieldOrder, aggregationQuality should be the same, since we have similar fields and aggregates
-        orderBy: ['fieldOrder', 'aggregationQuality', 'effectiveness'],
-        chooseBy: ['aggregationQuality', 'effectiveness']
-      };
-    }
-
-    function summarize(query) {
-      var newSpecQ = util.duplicate(query.spec);
-
-      // Make mark an enum spec
-      newSpecQ.mark = makeEnumSpec(newSpecQ.mark);
-
-      // For convert encoding for summary
-      newSpecQ.encodings = newSpecQ.encodings.reduce(function (encodings, encQ) {
-        // encQ.channel = makeEnumSpec(encQ.channel);
-        if (cql.enumSpec.isEnumSpec(encQ.type)) {
-          // This is just in case we support type = enumSpec in the future
-          encQ.aggregate = makeEnumSpec(encQ.aggregate);
-          encQ.bin = makeEnumSpec(encQ.bin);
-          encQ.timeUnit = makeEnumSpec(encQ.timeUnit);
-        } else {
-          switch (encQ.type) {
-            case vl.type.Type.QUANTITATIVE:
-              if (encQ.aggregate === 'count') {
-                // Skip count, so that it can be added back as autoCount or omitted
-                return encodings;
-              } else {
-                // For other Q, it should be either aggregate or binned
-                encQ.aggregate = makeEnumSpec(encQ.aggregate);
-                encQ.bin = makeEnumSpec(encQ.bin);
-                encQ.hasFn = true;
-              }
-              break;
-            case vl.type.Type.TEMPORAL:
-              // TODO: only year and periodic timeUnit
-              encQ.timeUnit = makeEnumSpec(encQ.timeUnit);
-              break;
+    // log event
+  $scope.onMouseOverLog = function ($event) {
+      var regionAction =undefined;
+      $event.originalEvent.path.find(function(d) {
+          if (d.tagName.toLowerCase()=='div') {
+              var temp = $scope.contain['div'].find(function(c){return d.classList.contains(c.key)});
+              regionAction = (temp==undefined)?undefined:temp.val;
+              return temp;
           }
+          else{
+              regionAction = $scope.contain[d.tagName.toLowerCase()];
+                return regionAction;
+          }});
+      if (regionAction!='body')
+          Logger.logInteraction(Logger.actions.MOUSE_OVER,regionAction, {val:{region:regionAction,
+                  position: {screenX:$event.screenX,
+                      screenY: $event.screenY,}},time:new Date()});
+  };
+     // end log
+    $scope.scrollToTop = function() {
+      $document.find('.vis-pane-container').scrollTop(0);
+    };
+
+    $scope.groupByChanged = function() {
+      Logger.logInteraction(Logger.actions.GROUP_BY_CHANGED, Spec.spec.groupBy);
+    };
+    $scope.autoAddCountChanged = function() {
+      Logger.logInteraction(Logger.actions.AUTO_ADD_COUNT_CHANGED, Spec.spec.autoAddCount);
+    };
+
+    $scope.$watch('Spec.alternatives', function(alternatives) {
+      for (var i = 0 ; i < alternatives.length; i++) {
+        if ($scope.alternativeType === alternatives[i].type) {
+          return;
         }
-        return encodings.concat(encQ);
-      }, []);
+      }
+      // at this point we don't have the suggestion type available, thus reset
+      $scope.setAlternativeType(null, true);
+    });
 
-      // TODO: extend config
-      return {
-        spec: newSpecQ,
-        groupBy: 'fieldTransform',
-        // fieldOrder should be the same, since we have similar fields
-        orderBy: ['fieldOrder', 'aggregationQuality', 'effectiveness'],
-        // aggregationQuality should be the same with group with similar transform
-        chooseBy: ['aggregationQuality', 'effectiveness'],
-        config: {
-          autoAddCount: true,
-          omitRaw: true
-        }
-      };
-    }
-
-    function disaggregate(query) {
-      var newSpecQ = util.duplicate(query.spec);
-      newSpecQ.mark = makeEnumSpec(newSpecQ.mark);
-      newSpecQ.encodings = newSpecQ.encodings
-        .filter(function (encQ) {
-          return encQ.aggregate !== 'count';
-        })
-        .map(function (encQ) {
-          // encQ.channel = makeEnumSpec(encQ.channel);
-          if (cql.enumSpec.isEnumSpec(encQ.type) || encQ.type === vl.type.Type.QUANTITATIVE) {
-            delete encQ.aggregate;
-            delete encQ.bin;
-          }
-          return encQ;
-        });
-
-      return {
-        spec: newSpecQ,
-        groupBy: 'fieldTransform',
-        // field order would be actually the same
-        orderBy: ['fieldOrder', 'aggregationQuality', 'effectiveness'],
-        chooseBy: ['aggregationQuality', 'effectiveness'],
-        config: {
-          autoAddCount: false,
-          omitAggregate: true
-        }
-      };
-    }
-
-    function addCategoricalField(query) {
-      var newSpecQ = util.duplicate(query.spec);
-      newSpecQ.encodings.push({
-        channel: cql.enumSpec.SHORT_ENUM_SPEC,
-        field: cql.enumSpec.SHORT_ENUM_SPEC,
-        type: vl.type.Type.NOMINAL
-        // type: {
-        //   enum: [vl.type.Type.NOMINAL, vl.type.Type.ORDINAL]
-        // }
+      $scope.$watch(function(){
+          return PCAplot.mspec;
+      },function(newmspec){
+         console.log('logging....');
+         console.log(newmspec);
       });
-      return {
-        spec: newSpecQ,
-        groupBy: 'field',
-        // FieldOrder should dominates everything else
-        orderBy: ['fieldOrder', 'aggregationQuality', 'effectiveness'],
-        // aggregationQuality should be the same
-        chooseBy: ['aggregationQuality', 'effectiveness'],
-        config: {
-          autoAddCount: true
-        }
+
+    // undo/redo support
+    $scope.canUndo = false;
+    $scope.canRedo = false;
+
+    // bookmark
+    $scope.showModal = function(modalId) {
+      Modals.open(modalId);
+      if (modalId == 'bookmark-list') {
+        Logger.logInteraction(Logger.actions.BOOKMARK_OPEN);
+      }
+    };
+
+    $scope.changetheme = function(){
+        $scope.themeDrak = !$scope.themeDrak;
+    };
+
+    if (Bookmarks.isSupported) {
+      // load bookmarks from local storage
+      Bookmarks.load();
+    }
+
+    if ($scope.embedded) {
+      // use provided data and we will hide the dataset selector
+      Dataset.dataset = {
+        values: consts.embeddedData,
+        name: 'embedded'
       };
     }
 
-    function addQuantitativeField(query) {
-      var newSpecQ = util.duplicate(query.spec);
-      newSpecQ.encodings.push({
-        channel: cql.enumSpec.SHORT_ENUM_SPEC,
-        bin: cql.enumSpec.SHORT_ENUM_SPEC,
-        aggregate: cql.enumSpec.SHORT_ENUM_SPEC,
-        field: cql.enumSpec.SHORT_ENUM_SPEC,
-        type: vl.type.Type.QUANTITATIVE
+      NotifyingService.subscribe($scope, function somethingChanged() {
+          //console.log("her");
+          $scope.$apply();
       });
-      return {
-        spec: newSpecQ,
-        groupBy: 'field',
-        // FieldOrder should dominates everything else
-        orderBy: ['fieldOrder', 'aggregationQuality', 'effectiveness'],
-        chooseBy: ['aggregationQuality', 'effectiveness'],
-        config: {
-          autoAddCount: true
-        }
-      };
-    }
 
-    function addTemporalField(query) {
-      var newSpecQ = util.duplicate(query.spec);
-      newSpecQ.encodings.push({
-        channel: cql.enumSpec.SHORT_ENUM_SPEC,
-        hasFn: true,
-        timeUnit: cql.enumSpec.SHORT_ENUM_SPEC,
-        field: cql.enumSpec.SHORT_ENUM_SPEC,
-        type: vl.type.Type.TEMPORAL
+    // initialize undo after we have a dataset
+    Dataset.update(Dataset.dataset).then(function() {
+      Config.updateDataset(Dataset.dataset);
+      if (consts.initialSpec) {
+          Spec.parseSpec(consts.initialSpec);
+          PCAplot.parseSpec(consts.initialSpec);
+      }
+      // PCAplot.plot(Dataset.data);
+      //Biplot.data = Dataset.data;
+      $scope.chron = Chronicle.record('Spec.spec', $scope, true,
+        ['Dataset.dataset', 'Config.config', 'FilterManager.filterIndex']);
+      // $scope.chron = Chronicle.record('PCAplot.spec', $scope, true,
+      //      ['Dataset.dataset', 'Config.config', 'FilterManager.filterIndex']);
+      $scope.canUndoRedo = function() {
+        $scope.canUndo = $scope.chron.canUndo();
+        $scope.canRedo = $scope.chron.canRedo();
+      };
+      $scope.chron.addOnAdjustFunction($scope.canUndoRedo);
+      $scope.chron.addOnUndoFunction($scope.canUndoRedo);
+      $scope.chron.addOnRedoFunction($scope.canUndoRedo);
+
+      $scope.chron.addOnUndoFunction(function() {
+        Logger.logInteraction(Logger.actions.UNDO);
       });
-      return {
-        spec: newSpecQ,
-        groupBy: 'field',
-        // FieldOrder should dominates everything else
-        orderBy: ['fieldOrder', 'aggregationQuality', 'effectiveness'],
-        chooseBy: ['aggregationQuality', 'effectiveness'],
-        config: {
-          autoAddCount: true
+      $scope.chron.addOnRedoFunction(function() {
+        Logger.logInteraction(Logger.actions.REDO);
+      });
+
+      angular.element($document).on('keydown', function(e) {
+        if (e.keyCode === 'Z'.charCodeAt(0) && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+          $scope.chron.undo();
+          $scope.$digest();
+          return false;
+        } else if (e.keyCode === 'Y'.charCodeAt(0) && (e.ctrlKey || e.metaKey)) {
+          $scope.chron.redo();
+          $scope.$digest();
+          return false;
+        } else if (e.keyCode === 'Z'.charCodeAt(0) && (e.ctrlKey || e.metaKey) && e.shiftKey) {
+          $scope.chron.redo();
+          $scope.$digest();
+          return false;
         }
-      };
-    }
-
-    function histograms(query) {
-      return {
-        spec: {
-          data: query.spec.data,
-          mark: cql.enumSpec.SHORT_ENUM_SPEC,
-          transform: query.spec.transform,
-          encodings: [
-            { channel: cql.enumSpec.SHORT_ENUM_SPEC, field: cql.enumSpec.SHORT_ENUM_SPEC, bin: cql.enumSpec.SHORT_ENUM_SPEC, timeUnit: cql.enumSpec.SHORT_ENUM_SPEC, type: cql.enumSpec.SHORT_ENUM_SPEC },
-            { channel: cql.enumSpec.SHORT_ENUM_SPEC, field: '*', aggregate: vl.aggregate.AggregateOp.COUNT, type: vl.type.Type.QUANTITATIVE }
-          ]
-        },
-        groupBy: 'fieldTransform',
-        // FieldOrder should dominates everything else
-        orderBy: ['fieldOrder', 'aggregationQuality', 'effectiveness'],
-        // aggregationQuality should be the same
-        chooseBy: ['aggregationQuality', 'effectiveness'],
-        config: { autoAddCount: false }
-      };
-    }
-
-    return Alternatives;
+      });
+    });
   }]);
 
 'use strict';
@@ -5184,192 +5015,361 @@ angular.module('vlui')
 'use strict';
 
 angular.module('pcagnosticsviz')
-  .controller('MainCtrl', ["$scope", "$document", "Spec", "Dataset", "Wildcards", "Config", "consts", "Chronicle", "Logger", "Bookmarks", "Modals", "FilterManager", "NotifyingService", "PCAplot", function($scope, $document, Spec, Dataset, Wildcards,  Config, consts, Chronicle, Logger, Bookmarks, Modals, FilterManager,NotifyingService,PCAplot) {
-    $scope.Spec = Spec;
-    $scope.contain = {"bi-plot":'Overview',
-        "div":[{key:'guideplot',val:'Exemplar'},
-            {key:'thumplot',val:'Feature pannel'},
-            {key:'slideGraph',val:'Mainview view'},
-            {key:'alternatives-pane',val:'Expanded views'},
-            {key:'guidemenu',val:'Feature pannel'}],
-        'h3':'headertext',
-        "body":'body'};
-    $scope.Dataset = Dataset;
-    $scope.Wildcards = Wildcards;
-    $scope.Config = Config;
-    $scope.Logger = Logger;
-    $scope.Bookmarks = Bookmarks;
-    $scope.FilterManager = FilterManager;
-    $scope.consts = consts;
-    $scope.showDevPanel = false;
-    $scope.embedded = !!consts.embeddedData;
-    //  $scope.Biplot = Biplot;
-    $scope.hideExplore = false;
-    $scope.fieldShow = false;
-    $scope.WildcardsShow = false;
-    $scope.PCAplot= PCAplot;
-    $scope.showEncoding = false;
-    $scope.showExtraGuide = false;
-    $scope.themeDrak = false;
-      $scope.fieldAdd = function(fieldDef) {
-          Pills.add(fieldDef);
-      };
-    $scope.toggleHideExplore = function() {
-      $scope.hideExplore = !$scope.hideExplore;
-      if ($scope.hideExplore) {
-        Logger.logInteraction(Logger.actions.TOGGLE_HIDE_ALTERNATIVES, Spec.chart.shorthand);
-      } else {
-        Logger.logInteraction(Logger.actions.TOGGLE_SHOW_ALTERNATIVES, Spec.chart.shorthand);
-      }
+  .service('Alternatives', ["ANY", "vl", "cql", "util", "Chart", "Dataset", function (ANY, vl, cql, util, Chart, Dataset) {
+    var Alternatives = {
+      alternativeEncodings: alternativeEncodings,
+      summarize: summarize,
+      disaggregate: disaggregate,
+      addCategoricalField: addCategoricalField,
+      addQuantitativeField: addQuantitativeField,
+      addTemporalField: addTemporalField,
+      histograms: histograms,
+
+      getHistograms: getHistograms,
+      getAlternatives: getAlternatives
     };
 
-    $scope.alternativeType = null;
-    $scope.setAlternativeType = function(type, automatic) {
-      $scope.alternativeType = type;
-      if (!automatic) {
-        $scope.hideExplore = false;
-        Logger.logInteraction(Logger.actions.TOGGLE_SHOW_ALTERNATIVES, Spec.chart.shorthand);
-        Logger.logInteraction(Logger.actions.SET_ALTERNATIVES_TYPE, type, {
-          shorthand: Spec.chart.shorthand
+    // TODO: import these from CQL once we export them!
+    var GROUP_BY_SIMILAR_ENCODINGS = [
+      cql.property.Property.FIELD,
+      cql.property.Property.AGGREGATE,
+      cql.property.Property.BIN,
+      cql.property.Property.TIMEUNIT,
+      cql.property.Property.TYPE,
+      {
+        property: cql.property.Property.CHANNEL,
+        replace: {
+          'x': 'xy', 'y': 'xy',
+          'color': 'style', 'size': 'style', 'shape': 'style', 'opacity': 'style',
+          'row': 'facet', 'column': 'facet'
+        }
+      }
+    ];
+
+    var GROUP_BY_SIMILAR_DATA_AND_TRANSFORM = [
+      cql.property.Property.FIELD,
+      cql.property.Property.AGGREGATE,
+      cql.property.Property.BIN,
+      cql.property.Property.TIMEUNIT,
+      cql.property.Property.TYPE,
+    ];
+
+    function getHistograms(query, chart, topItem) {
+      var alternative = {
+        type: 'histograms',
+        title: 'Univariate Summaries',
+        limit: 20,
+        query: histograms(query)
+      };
+      return [
+        util.extend(alternative, {
+          charts: executeQuery(alternative, chart, topItem)
+        })
+      ];
+    }
+
+
+
+    function getAlternatives(query, chart, topItem) {
+      var isAggregate = cql.query.spec.isAggregate(query.spec);
+
+      var alternativeTypes = [];
+
+      var hasT = false;
+      query.spec.encodings.forEach(function(encQ) {
+        if (encQ.type === vl.type.TEMPORAL) {
+          hasT = true;
+        }
+      });
+
+      var spec = chart.vlSpec;
+      var hasOpenPosition = !spec.encoding.x || !spec.encoding.y;
+      var hasStyleChannel = spec.encoding.color || spec.encoding.size || spec.encoding.shape || spec.encoding.opacity;
+      var hasOpenFacet = !spec.encoding.row || !spec.encoding.column;
+
+      if (!isAggregate) {
+        alternativeTypes.push({
+          type: 'summarize',
+          title: 'Summaries',
+          filterGroupBy: GROUP_BY_SIMILAR_DATA_AND_TRANSFORM,
+          limit: 2
         });
       }
-    };
 
+      if (hasOpenPosition) {
+        alternativeTypes.push({
+          type: 'addQuantitativeField',
+          title: 'Add Quantitative Field'
+        });
+      }
 
-    // log event
-  $scope.onMouseOverLog = function ($event) {
-      var regionAction =undefined;
-      $event.originalEvent.path.find(function(d) {
-          if (d.tagName.toLowerCase()=='div') {
-              var temp = $scope.contain['div'].find(function(c){return d.classList.contains(c.key)});
-              regionAction = (temp==undefined)?undefined:temp.val;
-              return temp;
+      if (hasOpenPosition || !hasStyleChannel) {
+        alternativeTypes.push({
+          type: 'addCategoricalField',
+          title: 'Add Categorical Field'
+        });
+      }
+
+      if (!hasOpenPosition && !hasStyleChannel) {
+        alternativeTypes.push({
+          type: 'addQuantitativeField',
+          title: 'Add Quantitative Field'
+        });
+      }
+
+      if (!hasT && hasOpenPosition) {
+        alternativeTypes.push({
+          type: 'addTemporalField',
+          title: 'Add Temporal Field'
+        });
+      }
+
+      alternativeTypes.push({
+        type: 'alternativeEncodings',
+        title: 'Alternative Encodings',
+        filterGroupBy: GROUP_BY_SIMILAR_ENCODINGS
+      });
+
+      if (!(hasOpenPosition || !hasStyleChannel) && hasOpenFacet) {
+        alternativeTypes.push({
+          type: 'addCategoricalField',
+          title: 'Add Categorical Field'
+        });
+      }
+
+      // if (isAggregate) {
+      //   alternativeTypes.push({
+      //     type: 'summarize',
+      //     title: 'Summaries',
+      //     filterGroupBy: GROUP_BY_SIMILAR_DATA_AND_TRANSFORM
+      //   });
+
+      //   alternativeTypes.push({
+      //     type: 'disaggregate',
+      //     title: 'Disaggregate'
+      //   });
+      // }
+
+      return alternativeTypes.map(function(alternative) {
+        alternative.query = Alternatives[alternative.type](query);
+        alternative.charts = executeQuery(alternative, chart, topItem);
+        return alternative;
+      });
+    }
+
+    function executeQuery(alternative, mainChart, mainTopItem) {
+      var output = cql.query(alternative.query, Dataset.schema);
+
+      // Don't include the specified visualization in the recommendation list
+      return output.result.items
+        .filter(function(item) {
+          var topItem = item.getTopSpecQueryModel();
+          return !mainChart || !mainChart.shorthand ||(
+            topItem.toShorthand(alternative.filterGroupBy) !==
+            mainTopItem.toShorthand(alternative.filterGroupBy)
+          );
+        })
+        .map(Chart.getChart);
+    }
+
+    function makeEnumSpec(val) {
+      return cql.enumSpec.isEnumSpec(val) ? val : cql.enumSpec.SHORT_ENUM_SPEC;
+    }
+
+    /**
+     * Namespace for template methods for making a new SpecQuery
+     */
+    function alternativeEncodings(query) {
+      var newSpecQ = util.duplicate(query.spec);
+      newSpecQ.mark = makeEnumSpec(newSpecQ.mark);
+      newSpecQ.encodings.forEach(function (encQ) {
+        encQ.channel = makeEnumSpec(encQ.channel);
+      });
+      // TODO: extend config
+      return {
+        spec: newSpecQ,
+        groupBy: 'encoding',
+        // fieldOrder, aggregationQuality should be the same, since we have similar fields and aggregates
+        orderBy: ['fieldOrder', 'aggregationQuality', 'effectiveness'],
+        chooseBy: ['aggregationQuality', 'effectiveness']
+      };
+    }
+
+    function summarize(query) {
+      var newSpecQ = util.duplicate(query.spec);
+
+      // Make mark an enum spec
+      newSpecQ.mark = makeEnumSpec(newSpecQ.mark);
+
+      // For convert encoding for summary
+      newSpecQ.encodings = newSpecQ.encodings.reduce(function (encodings, encQ) {
+        // encQ.channel = makeEnumSpec(encQ.channel);
+        if (cql.enumSpec.isEnumSpec(encQ.type)) {
+          // This is just in case we support type = enumSpec in the future
+          encQ.aggregate = makeEnumSpec(encQ.aggregate);
+          encQ.bin = makeEnumSpec(encQ.bin);
+          encQ.timeUnit = makeEnumSpec(encQ.timeUnit);
+        } else {
+          switch (encQ.type) {
+            case vl.type.Type.QUANTITATIVE:
+              if (encQ.aggregate === 'count') {
+                // Skip count, so that it can be added back as autoCount or omitted
+                return encodings;
+              } else {
+                // For other Q, it should be either aggregate or binned
+                encQ.aggregate = makeEnumSpec(encQ.aggregate);
+                encQ.bin = makeEnumSpec(encQ.bin);
+                encQ.hasFn = true;
+              }
+              break;
+            case vl.type.Type.TEMPORAL:
+              // TODO: only year and periodic timeUnit
+              encQ.timeUnit = makeEnumSpec(encQ.timeUnit);
+              break;
           }
-          else{
-              regionAction = $scope.contain[d.tagName.toLowerCase()];
-                return regionAction;
-          }});
-      if (regionAction!='body')
-          Logger.logInteraction(Logger.actions.MOUSE_OVER,regionAction, {val:{region:regionAction,
-                  position: {screenX:$event.screenX,
-                      screenY: $event.screenY,}},time:new Date()});
-  };
-     // end log
-    $scope.scrollToTop = function() {
-      $document.find('.vis-pane-container').scrollTop(0);
-    };
-
-    $scope.groupByChanged = function() {
-      Logger.logInteraction(Logger.actions.GROUP_BY_CHANGED, Spec.spec.groupBy);
-    };
-    $scope.autoAddCountChanged = function() {
-      Logger.logInteraction(Logger.actions.AUTO_ADD_COUNT_CHANGED, Spec.spec.autoAddCount);
-    };
-
-    $scope.$watch('Spec.alternatives', function(alternatives) {
-      for (var i = 0 ; i < alternatives.length; i++) {
-        if ($scope.alternativeType === alternatives[i].type) {
-          return;
         }
-      }
-      // at this point we don't have the suggestion type available, thus reset
-      $scope.setAlternativeType(null, true);
-    });
+        return encodings.concat(encQ);
+      }, []);
 
-      $scope.$watch(function(){
-          return PCAplot.mspec;
-      },function(newmspec){
-         console.log('logging....');
-         console.log(newmspec);
-      });
-
-    // undo/redo support
-    $scope.canUndo = false;
-    $scope.canRedo = false;
-
-    // bookmark
-    $scope.showModal = function(modalId) {
-      Modals.open(modalId);
-      if (modalId == 'bookmark-list') {
-        Logger.logInteraction(Logger.actions.BOOKMARK_OPEN);
-      }
-    };
-
-    $scope.changetheme = function(){
-        $scope.themeDrak = !$scope.themeDrak;
-    };
-
-    if (Bookmarks.isSupported) {
-      // load bookmarks from local storage
-      Bookmarks.load();
-    }
-
-    if ($scope.embedded) {
-      // use provided data and we will hide the dataset selector
-      Dataset.dataset = {
-        values: consts.embeddedData,
-        name: 'embedded'
+      // TODO: extend config
+      return {
+        spec: newSpecQ,
+        groupBy: 'fieldTransform',
+        // fieldOrder should be the same, since we have similar fields
+        orderBy: ['fieldOrder', 'aggregationQuality', 'effectiveness'],
+        // aggregationQuality should be the same with group with similar transform
+        chooseBy: ['aggregationQuality', 'effectiveness'],
+        config: {
+          autoAddCount: true,
+          omitRaw: true
+        }
       };
     }
 
-      NotifyingService.subscribe($scope, function somethingChanged() {
-          //console.log("her");
-          $scope.$apply();
-      });
+    function disaggregate(query) {
+      var newSpecQ = util.duplicate(query.spec);
+      newSpecQ.mark = makeEnumSpec(newSpecQ.mark);
+      newSpecQ.encodings = newSpecQ.encodings
+        .filter(function (encQ) {
+          return encQ.aggregate !== 'count';
+        })
+        .map(function (encQ) {
+          // encQ.channel = makeEnumSpec(encQ.channel);
+          if (cql.enumSpec.isEnumSpec(encQ.type) || encQ.type === vl.type.Type.QUANTITATIVE) {
+            delete encQ.aggregate;
+            delete encQ.bin;
+          }
+          return encQ;
+        });
 
-    // initialize undo after we have a dataset
-    Dataset.update(Dataset.dataset).then(function() {
-      Config.updateDataset(Dataset.dataset);
-      if (consts.initialSpec) {
-          Spec.parseSpec(consts.initialSpec);
-          PCAplot.parseSpec(consts.initialSpec);
-      }
-      // PCAplot.plot(Dataset.data);
-      //Biplot.data = Dataset.data;
-      $scope.chron = Chronicle.record('Spec.spec', $scope, true,
-        ['Dataset.dataset', 'Config.config', 'FilterManager.filterIndex']);
-      // $scope.chron = Chronicle.record('PCAplot.spec', $scope, true,
-      //      ['Dataset.dataset', 'Config.config', 'FilterManager.filterIndex']);
-      $scope.canUndoRedo = function() {
-        $scope.canUndo = $scope.chron.canUndo();
-        $scope.canRedo = $scope.chron.canRedo();
-      };
-      $scope.chron.addOnAdjustFunction($scope.canUndoRedo);
-      $scope.chron.addOnUndoFunction($scope.canUndoRedo);
-      $scope.chron.addOnRedoFunction($scope.canUndoRedo);
-
-      $scope.chron.addOnUndoFunction(function() {
-        Logger.logInteraction(Logger.actions.UNDO);
-      });
-      $scope.chron.addOnRedoFunction(function() {
-        Logger.logInteraction(Logger.actions.REDO);
-      });
-
-      angular.element($document).on('keydown', function(e) {
-        if (e.keyCode === 'Z'.charCodeAt(0) && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
-          $scope.chron.undo();
-          $scope.$digest();
-          return false;
-        } else if (e.keyCode === 'Y'.charCodeAt(0) && (e.ctrlKey || e.metaKey)) {
-          $scope.chron.redo();
-          $scope.$digest();
-          return false;
-        } else if (e.keyCode === 'Z'.charCodeAt(0) && (e.ctrlKey || e.metaKey) && e.shiftKey) {
-          $scope.chron.redo();
-          $scope.$digest();
-          return false;
+      return {
+        spec: newSpecQ,
+        groupBy: 'fieldTransform',
+        // field order would be actually the same
+        orderBy: ['fieldOrder', 'aggregationQuality', 'effectiveness'],
+        chooseBy: ['aggregationQuality', 'effectiveness'],
+        config: {
+          autoAddCount: false,
+          omitAggregate: true
         }
+      };
+    }
+
+    function addCategoricalField(query) {
+      var newSpecQ = util.duplicate(query.spec);
+      newSpecQ.encodings.push({
+        channel: cql.enumSpec.SHORT_ENUM_SPEC,
+        field: cql.enumSpec.SHORT_ENUM_SPEC,
+        type: vl.type.Type.NOMINAL
+        // type: {
+        //   enum: [vl.type.Type.NOMINAL, vl.type.Type.ORDINAL]
+        // }
       });
-    });
+      return {
+        spec: newSpecQ,
+        groupBy: 'field',
+        // FieldOrder should dominates everything else
+        orderBy: ['fieldOrder', 'aggregationQuality', 'effectiveness'],
+        // aggregationQuality should be the same
+        chooseBy: ['aggregationQuality', 'effectiveness'],
+        config: {
+          autoAddCount: true
+        }
+      };
+    }
+
+    function addQuantitativeField(query) {
+      var newSpecQ = util.duplicate(query.spec);
+      newSpecQ.encodings.push({
+        channel: cql.enumSpec.SHORT_ENUM_SPEC,
+        bin: cql.enumSpec.SHORT_ENUM_SPEC,
+        aggregate: cql.enumSpec.SHORT_ENUM_SPEC,
+        field: cql.enumSpec.SHORT_ENUM_SPEC,
+        type: vl.type.Type.QUANTITATIVE
+      });
+      return {
+        spec: newSpecQ,
+        groupBy: 'field',
+        // FieldOrder should dominates everything else
+        orderBy: ['fieldOrder', 'aggregationQuality', 'effectiveness'],
+        chooseBy: ['aggregationQuality', 'effectiveness'],
+        config: {
+          autoAddCount: true
+        }
+      };
+    }
+
+    function addTemporalField(query) {
+      var newSpecQ = util.duplicate(query.spec);
+      newSpecQ.encodings.push({
+        channel: cql.enumSpec.SHORT_ENUM_SPEC,
+        hasFn: true,
+        timeUnit: cql.enumSpec.SHORT_ENUM_SPEC,
+        field: cql.enumSpec.SHORT_ENUM_SPEC,
+        type: vl.type.Type.TEMPORAL
+      });
+      return {
+        spec: newSpecQ,
+        groupBy: 'field',
+        // FieldOrder should dominates everything else
+        orderBy: ['fieldOrder', 'aggregationQuality', 'effectiveness'],
+        chooseBy: ['aggregationQuality', 'effectiveness'],
+        config: {
+          autoAddCount: true
+        }
+      };
+    }
+
+    function histograms(query) {
+      return {
+        spec: {
+          data: query.spec.data,
+          mark: cql.enumSpec.SHORT_ENUM_SPEC,
+          transform: query.spec.transform,
+          encodings: [
+            { channel: cql.enumSpec.SHORT_ENUM_SPEC, field: cql.enumSpec.SHORT_ENUM_SPEC, bin: cql.enumSpec.SHORT_ENUM_SPEC, timeUnit: cql.enumSpec.SHORT_ENUM_SPEC, type: cql.enumSpec.SHORT_ENUM_SPEC },
+            { channel: cql.enumSpec.SHORT_ENUM_SPEC, field: '*', aggregate: vl.aggregate.AggregateOp.COUNT, type: vl.type.Type.QUANTITATIVE }
+          ]
+        },
+        groupBy: 'fieldTransform',
+        // FieldOrder should dominates everything else
+        orderBy: ['fieldOrder', 'aggregationQuality', 'effectiveness'],
+        // aggregationQuality should be the same
+        chooseBy: ['aggregationQuality', 'effectiveness'],
+        config: { autoAddCount: false }
+      };
+    }
+
+    return Alternatives;
   }]);
 
-angular.module("pcagnosticsviz").run(["$templateCache", function($templateCache) {$templateCache.put("app/main/main.html","<div ng-controller=\"MainCtrl\" ng-class=\"{light: themeDrak}\" class=\"flex-root vflex full-width full-height\" ng-mousedown=\"onMouseDownLog($event)\" ng-mouseenter=\"onMouseEnterLog($event)\" ng-mouseover=\"onMouseOverLog($event)\"><div class=\"full-width no-shrink shadow\"><div class=\"card top-card no-right-margin no-top-margin\"><div class=\"hflex\" style=\"justify-content: space-between;\"><div id=\"logo\" ng-click=\"Logger.export()\"></div><div class=\"pane\"><div class=\"controls\"><a ng-show=\"Bookmarks.isSupported\" class=\"command\" ng-click=\"showModal(\'bookmark-list\')\"><i class=\"fa fa-bookmark\"></i> Bookmarks ({{Bookmarks.list.length}})</a> <a class=\"command\" ng-click=\"chron.undo()\" ng-class=\"{disabled: !canUndo}\"><i class=\"fa fa-undo\"></i> Undo</a> <a class=\"command\" ng-click=\"chron.redo()\" ng-class=\"{disabled: !canRedo}\"><i class=\"fa fa-repeat\"></i> Redo</a></div></div><div class=\"pane\"><div class=\"controls\"><a class=\"command\" ng-if=\"themeDrak\" ng-click=\"changetheme()\"><i class=\"fa fa-moon-o\"></i> Dark</a> <a class=\"command\" ng-if=\"!themeDrak\" ng-click=\"changetheme()\"><i class=\"fa fa-sun-o\"></i> Light</a></div></div></div></div><alert-messages></alert-messages></div><div class=\"hflex full-width main-panel grow-1\"><div class=\"pane data-pane noselect\"><div class=\"card no-top-margin data-card abs-100 modifedside\"><div class=\"sidebar-header\" ng-if=\"!embedded\"><h2>Data</h2><dataset-selector class=\"right\"></dataset-selector><div class=\"current-dataset\" title=\"{{Dataset.currentDataset.name}}\"><i class=\"fa fa-database\"></i> <span class=\"dataset-name\">{{Dataset.currentDataset.name}}</span></div></div><h3>Overview</h3><bi-plot></bi-plot><h3>Exemplar plots</h3><div class=\"scroll-y-nox scroll-y\"><vl-plot-group ng-if=\"PCAplot.chart\" class=\"main-vl-plot-group card no-shrink guideplot\" ng-repeat=\"chart in PCAplot.charts\" ng-class=\"{square: PCAplot.dim}\" ng-click=\"PCAplot.prop2spec(chart.prop)\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"true\" show-axis-prop=\"false\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\" style=\"margin-top: 0px; margin-bottom: 5px;\"></vl-plot-group><div class=\"hflex full-width\"><h3>Fields</h3><div class=\"header-drop active\"><i class=\"fa fa-caret-down droplist\" ng-click=\"fieldShow = !fieldShow\"></i></div></div><div ng-show=\"fieldShow\"><schema-list field-defs=\"Dataset.schema.fieldSchemas\" order-by=\"Dataset.fieldOrder\" show-count=\"true\" filter-manager=\"FilterManager\" show-add=\"true\"></schema-list></div><div ng-show=\"WildcardsShow\"><schema-list field-defs=\"Wildcards.list\" show-add=\"true\" show-drop=\"true\"></schema-list></div></div></div>Ma</div><div class=\"pane vis-pane\"><div class=\"vis-pane-container abs-100\" ng-class=\"{\'scroll-y\': !hideExplore || !Spec.isSpecific, \'no-scroll-y\': hideExplore && Spec.isSpecific}\"><div class=\"mainareacustom full-width\"><div class=\"pane encoding-pane\" style=\"min-height: 200px;\"><shelves spec=\"Spec.spec\" filter-manager=\"FilterManager\" preview=\"false\" support-any=\"true\" ng-class=\"shelvescustom\"></shelves><shelves class=\"preview\" ng-show=\"Spec.previewedSpec\" spec=\"Spec.previewedSpec || Spec.emptySpec\" preview=\"true\" support-any=\"true\"></shelves></div><slide-graph ng-if=\"PCAplot.prop.charts && Spec.isSpecific && !Spec.isEmptyPlot\" charts=\"PCAplot.prop.charts\" pos=\"PCAplot.prop.pos\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></slide-graph></div><div class=\"alternatives-pane card navigation\" ng-class=\"{collapse: hideExplore}\" ng-if=\"Spec.isSpecific && !Spec.isEmptyPlot\"><guide-menu prop=\"PCAplot.prop\" priority=\"2\" marks=\"PCAplot.marks\" props=\"PCAplot.types\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></guide-menu></div></div></div><div class=\"pane guidemenu grow-1\" ng-if=\"showExtraGuide||PCAplot.prop\"><div class=\"alternatives-pane card\" ng-class=\"{collapse: hideExplore}\" ng-if=\"Spec.isSpecific && !Spec.isEmptyPlot\"><div class=\"alternatives-header\"><div class=\"right alternatives-jump\"><a class=\"toggle-hide-explore\" ng-click=\"toggleHideExplore()\"><span ng-show=\"hideExplore\">Show <i class=\"fa fa-toggle-up\"></i></span> <span ng-show=\"!hideExplore\">Hide <i class=\"fa fa-toggle-down\"></i></span></a></div><h2>Expanded views</h2></div><div class=\"alternatives-content scroll-y\" ng-if=\"!hideExplore\"><vl-plot-group-list ng-repeat=\"alternative in PCAplot.alternatives\" ng-if=\"alternative.charts.length > 0 && (!$parent.alternativeType || $parent.alternativeType === alternative.type)\" id=\"alternatives-{{alternative.type}}\" list-title=\"alternative.title\" charts=\"alternative.charts\" enable-pills-preview=\"true\" priority=\"$index * 1000\" initial-limit=\"alternative.limit || null\" post-select-action=\"$parent.scrollToTop()\" show-query-select=\"true\" query=\"alternative.query\"></vl-plot-group-list></div></div></div></div><div class=\"hflex full-width dev-panel\" ng-if=\"showDevPanel\"><div class=\"pane\" ng-show=\"consts.logToWebSql\"><div class=\"card\"><div>userid: {{Logger.userid}}</div><button ng-click=\"Logger.clear()\">Clear logs</button><br><button ng-click=\"Logger.export()\">Download logs</button></div></div><div class=\"pane config-pane\"><div class=\"card scroll-y abs-100\"><configuration-editor></configuration-editor></div></div><div class=\"pane vl-pane\"><cql-query-editor></cql-query-editor></div><div class=\"pane vg-pane\"><vg-spec-editor></vg-spec-editor></div></div><bookmark-list highlighted=\"Fields.highlighted\" post-select-action=\"scrollToTop\"></bookmark-list><dataset-modal></dataset-modal></div>");
-$templateCache.put("components/configurationeditor/configurationeditor.html","<form><pre>{{ Config.config | compactJSON }}</pre></form>");
+angular.module("pcagnosticsviz").run(["$templateCache", function($templateCache) {$templateCache.put("components/configurationeditor/configurationeditor.html","<form><pre>{{ Config.config | compactJSON }}</pre></form>");
 $templateCache.put("components/cqlQueryEditor/cqlQueryEditor.html","<div class=\"card scroll-y abs-100 vflex\"><div><div class=\"right command\"><a ui-zeroclip=\"\" zeroclip-model=\"Spec.query | compactJSON\">Copy</a></div><h3>CompassQL Query</h3></div><textarea class=\"cqlquery flex-grow-1 full-height\" json-input=\"\" type=\"text\" ng-model=\"Spec.cleanQuery\"></textarea></div>");
 $templateCache.put("components/d3-biplot/bi-plot.html","<svg id=\"bi-plot\" width=\"100%\" class=\"biplot\"><g id=\"bi-plot2\"></g><rect class=\"overlay\"></rect><g id=\"bi-plot-g\"><g id=\"bi-plot-axis\"></g><g id=\"bi-plot-point\"></g></g></svg>");
 $templateCache.put("components/d3-guideplot/gplot.html","<div class=\"gplot\" ng-click=\"explore()\"><svg class=\"gplotSvg\" id=\"gplot{{pcaDef}}\"></svg></div>");
 $templateCache.put("components/d3-guideplot/guide-plot.html","<div id=\"guide-plot-group\" class=\"guideplot\"><g-plot ng-repeat=\"pcaDef in pcaDefs\" pca-def=\"pcaDef\" id=\"{{pcaDef}}\"></g-plot></div>");
-$templateCache.put("components/guidemenu/guideMenu.html","<div class=\"contain\"><div class=\"sidebar-header\"><h2>Guided navigation</h2><div class=\"features\"><div id=\"typeselectcontain\"><label for=\"typeselect\">Feature type</label><select class=\"typeselect\" id=\"typeselect\" ng-model=\"prop.type\" ng-options=\"type for type in props\" ng-change=\"typeChange()\"></select></div><div><label for=\"markselect\">Abstraction</label><select class=\"markselect\" id=\"markselect\" ng-model=\"prop.mark\" ng-options=\"item.mark as item.label for item in marks\" ng-change=\"markChange()\"></select></div></div></div><div class=\"thum\"><svg viewbox=\"0 0 1200 1200\" width=\"100%\" height=\"100%\" preserveaspectratio=\"xMidYMid meet\"><g class=\"oneDimentional\"><g class=\"twoDimentional\"></g><g class=\"foreignObject\" ng-if=\"prop.dim==0\" ng-repeat=\"chart in prop.previewcharts track by generateID(chart)\" ng-class=\"{\'active\': prop.pos== $index}\" fo-repeat-directive=\"\"><foreignobject x=\"-135\" y=\"-65\" width=\"300\" height=\"110\"><vl-plot-group ng-if=\"prop.previewcharts\" class=\"main-vl-plot-group card thumplot no-shrink\" ng-class=\"{\'square\':prop.dim}\" ng-click=\"previewSlider($index)\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"false\" show-axis-prop=\"true\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\" priority=\"priority * $index\"></vl-plot-group></foreignobject></g></g></svg></div></div>");
 $templateCache.put("components/d3-slidegraph/slide-com.html","<li class=\"item wrap\"><vl-plot-group ng-if=\"chart!=undefined\" class=\"item\" chart=\"chart\" show-bookmark=\"true\" show-debug=\"false\" show-select=\"false\" show-axis-prop=\"false\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"true\"></vl-plot-group></li>");
 $templateCache.put("components/d3-slidegraph/slide-graph.html","<div class=\"slideGraph card no-top-margin\"><h2>Focus view</h2><div class=\"wrap\"><button class=\"butSlider\" ng-click=\"prev()\"><i class=\"fa fa-angle-double-up\"></i></button><div class=\"scroller\"><ul class=\"items-slider\"><slide-com ng-repeat=\"chart in buffer track by $index\" chart=\"chart\"></slide-com></ul></div><button class=\"butSlider\" ng-click=\"next()\"><i class=\"fa fa-angle-double-down\"></i></button></div></div>");
-$templateCache.put("components/vgSpecEditor/vgSpecEditor.html","<div class=\"card scroll-y abs-100 vflex no-right-margin\"><div><div class=\"right\"><a class=\"command\" ui-zeroclip=\"\" zeroclip-model=\"Spec.chart.vgSpec | compactJSON\">Copy</a><lyra-export></lyra-export></div><h3>Vega Specification</h3></div><textarea class=\"vgspec flex-grow-1\" json-input=\"\" disabled=\"disabled\" type=\"text\" ng-model=\"Spec.chart.vgSpec\"></textarea></div>");}]);
+$templateCache.put("components/guidemenu/guideMenu.html","<div class=\"contain\"><div class=\"sidebar-header\"><h2>Guided navigation</h2><div class=\"features\"><div id=\"typeselectcontain\"><label for=\"typeselect\">Feature type</label><select class=\"typeselect field-info pill\" id=\"typeselect\" ng-model=\"prop.type\" ng-options=\"type for type in props\" ng-change=\"typeChange()\"></select></div><div><label for=\"markselect\">Abstraction</label><select class=\"markselect field-info pill\" id=\"markselect\" ng-model=\"prop.mark\" ng-options=\"item.mark as item.label for item in marks\" ng-change=\"markChange()\"></select></div></div></div><div class=\"thum\"><svg viewbox=\"0 0 1200 1200\" width=\"100%\" height=\"100%\" preserveaspectratio=\"xMidYMid meet\" style=\"background-color: white;\"><g class=\"oneDimentional\"><g class=\"twoDimentional\"></g><g class=\"foreignObject\" ng-if=\"prop.dim==0\" ng-repeat=\"chart in prop.previewcharts track by generateID(chart)\" ng-class=\"{\'active\': prop.pos== $index}\" fo-repeat-directive=\"\"><foreignobject x=\"-135\" y=\"-65\" width=\"300\" height=\"110\"><vl-plot-group ng-if=\"prop.previewcharts\" class=\"main-vl-plot-group card thumplot no-shrink\" ng-class=\"{\'square\':prop.dim}\" ng-click=\"previewSlider($index)\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"false\" show-axis-prop=\"true\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\" priority=\"priority * $index\"></vl-plot-group></foreignobject></g></g></svg></div></div>");
+$templateCache.put("components/vgSpecEditor/vgSpecEditor.html","<div class=\"card scroll-y abs-100 vflex no-right-margin\"><div><div class=\"right\"><a class=\"command\" ui-zeroclip=\"\" zeroclip-model=\"Spec.chart.vgSpec | compactJSON\">Copy</a><lyra-export></lyra-export></div><h3>Vega Specification</h3></div><textarea class=\"vgspec flex-grow-1\" json-input=\"\" disabled=\"disabled\" type=\"text\" ng-model=\"Spec.chart.vgSpec\"></textarea></div>");
+$templateCache.put("app/main/main.html","<div ng-controller=\"MainCtrl\" ng-class=\"{light: themeDrak}\" class=\"flex-root vflex full-width full-height\" ng-mousedown=\"onMouseDownLog($event)\" ng-mouseenter=\"onMouseEnterLog($event)\" ng-mouseover=\"onMouseOverLog($event)\"><div class=\"full-width no-shrink shadow\"><div class=\"card top-card no-right-margin no-top-margin\"><div class=\"hflex\" style=\"justify-content: space-between;\"><div id=\"logo\" ng-click=\"Logger.export()\"></div><div class=\"pane\"><div class=\"controls\"><a ng-show=\"Bookmarks.isSupported\" class=\"command\" ng-click=\"showModal(\'bookmark-list\')\"><i class=\"fa fa-bookmark\"></i> Bookmarks ({{Bookmarks.list.length}})</a> <a class=\"command\" ng-click=\"chron.undo()\" ng-class=\"{disabled: !canUndo}\"><i class=\"fa fa-undo\"></i> Undo</a> <a class=\"command\" ng-click=\"chron.redo()\" ng-class=\"{disabled: !canRedo}\"><i class=\"fa fa-repeat\"></i> Redo</a></div></div><div class=\"pane\"><div class=\"controls\"><a class=\"command\" ng-if=\"themeDrak\" ng-click=\"changetheme()\"><i class=\"fa fa-moon-o\"></i> Dark</a> <a class=\"command\" ng-if=\"!themeDrak\" ng-click=\"changetheme()\"><i class=\"fa fa-sun-o\"></i> Light</a></div></div></div></div><alert-messages></alert-messages></div><div class=\"hflex full-width main-panel grow-1\"><div class=\"pane data-pane noselect\"><div class=\"card no-top-margin data-card abs-100 modifedside\"><div class=\"sidebar-header\" ng-if=\"!embedded\"><h2>Data</h2><dataset-selector class=\"right\"></dataset-selector><div class=\"current-dataset\" title=\"{{Dataset.currentDataset.name}}\"><i class=\"fa fa-database\"></i> <span class=\"dataset-name\">{{Dataset.currentDataset.name}}</span></div></div><h3>Overview</h3><bi-plot></bi-plot><h3>Exemplar plots</h3><div class=\"scroll-y-nox scroll-y\"><vl-plot-group ng-if=\"PCAplot.chart\" class=\"main-vl-plot-group card no-shrink guideplot\" ng-repeat=\"chart in PCAplot.charts\" ng-class=\"{square: PCAplot.dim}\" ng-click=\"PCAplot.prop2spec(chart.prop)\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"true\" show-axis-prop=\"false\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\" style=\"margin-top: 0px; margin-bottom: 5px;\"></vl-plot-group><div class=\"hflex full-width\"><h3>Fields</h3><div class=\"header-drop active\"><i class=\"fa fa-caret-down droplist\" ng-click=\"fieldShow = !fieldShow\"></i></div></div><div ng-show=\"fieldShow\"><schema-list field-defs=\"Dataset.schema.fieldSchemas\" order-by=\"Dataset.fieldOrder\" show-count=\"true\" filter-manager=\"FilterManager\" show-add=\"true\"></schema-list></div><div ng-show=\"WildcardsShow\"><schema-list field-defs=\"Wildcards.list\" show-add=\"true\" show-drop=\"true\"></schema-list></div></div></div>Ma</div><div class=\"pane vis-pane\"><div class=\"vis-pane-container abs-100\" ng-class=\"{\'scroll-y\': !hideExplore || !Spec.isSpecific, \'no-scroll-y\': hideExplore && Spec.isSpecific}\"><div class=\"mainareacustom full-width\"><div class=\"pane encoding-pane\" style=\"min-height: 200px;\"><shelves spec=\"Spec.spec\" filter-manager=\"FilterManager\" preview=\"false\" support-any=\"true\" ng-class=\"shelvescustom\"></shelves><shelves class=\"preview\" ng-show=\"Spec.previewedSpec\" spec=\"Spec.previewedSpec || Spec.emptySpec\" preview=\"true\" support-any=\"true\"></shelves></div><slide-graph ng-if=\"PCAplot.prop.charts && Spec.isSpecific && !Spec.isEmptyPlot\" charts=\"PCAplot.prop.charts\" pos=\"PCAplot.prop.pos\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></slide-graph></div><div class=\"alternatives-pane card navigation\" ng-class=\"{collapse: hideExplore}\" ng-if=\"Spec.isSpecific && !Spec.isEmptyPlot\"><guide-menu prop=\"PCAplot.prop\" priority=\"2\" marks=\"PCAplot.marks\" props=\"PCAplot.types\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></guide-menu></div></div></div><div class=\"pane guidemenu grow-1\" ng-if=\"showExtraGuide||PCAplot.prop\"><div class=\"alternatives-pane card\" ng-class=\"{collapse: hideExplore}\" ng-if=\"Spec.isSpecific && !Spec.isEmptyPlot\"><div class=\"alternatives-header\"><div class=\"right alternatives-jump\"><a class=\"toggle-hide-explore\" ng-click=\"toggleHideExplore()\"><span ng-show=\"hideExplore\">Show <i class=\"fa fa-toggle-up\"></i></span> <span ng-show=\"!hideExplore\">Hide <i class=\"fa fa-toggle-down\"></i></span></a></div><h2>Expanded views</h2></div><div class=\"alternatives-content scroll-y\" ng-if=\"!hideExplore\"><vl-plot-group-list ng-repeat=\"alternative in PCAplot.alternatives\" ng-if=\"alternative.charts.length > 0 && (!$parent.alternativeType || $parent.alternativeType === alternative.type)\" id=\"alternatives-{{alternative.type}}\" list-title=\"alternative.title\" charts=\"alternative.charts\" enable-pills-preview=\"true\" priority=\"$index * 1000\" initial-limit=\"alternative.limit || null\" post-select-action=\"$parent.scrollToTop()\" show-query-select=\"true\" query=\"alternative.query\"></vl-plot-group-list></div></div></div></div><div class=\"hflex full-width dev-panel\" ng-if=\"showDevPanel\"><div class=\"pane\" ng-show=\"consts.logToWebSql\"><div class=\"card\"><div>userid: {{Logger.userid}}</div><button ng-click=\"Logger.clear()\">Clear logs</button><br><button ng-click=\"Logger.export()\">Download logs</button></div></div><div class=\"pane config-pane\"><div class=\"card scroll-y abs-100\"><configuration-editor></configuration-editor></div></div><div class=\"pane vl-pane\"><cql-query-editor></cql-query-editor></div><div class=\"pane vg-pane\"><vg-spec-editor></vg-spec-editor></div></div><bookmark-list highlighted=\"Fields.highlighted\" post-select-action=\"scrollToTop\"></bookmark-list><dataset-modal></dataset-modal></div>");}]);
