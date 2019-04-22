@@ -263,8 +263,9 @@ angular.module('pcagnosticsviz')
                 //
                 // }, true);
 
-                var generalWatcher = $scope.$watch('[prop.dim,prop.type,prop.mark,prop.previewcharts.length]', function(spec) {
+                var generalWatcher = $scope.$watch('[prop.dim,prop.type,prop.mark,prop.previewcharts]', function(spec) {
                     first = false;
+                    console.log($scope.prop.previewcharts);
                     updateInterface($scope.prop.dim,$scope.prop);
 
                 }, true); //, true /* watch equality rather than reference */);
@@ -287,6 +288,7 @@ angular.module('pcagnosticsviz')
                     // Clean up watcher
                     // specWatcher();
                     generalWatcher();
+                    posWatcher();
                 });
 
                 function updateInterface (dim,data){
@@ -382,12 +384,12 @@ angular.module('pcagnosticsviz')
                     generalattr.xRescale = d3v4.scaleLinear().domain([0,generalattr.sh/2]).range([generalattr.w()/2-generalattr.sw/2,generalattr.w()/2]);
                     function ticked (d){
                         const foreign = d3v4.select(".thum").selectAll('.foreignObject').data($scope.prop.previewcharts)
-                            // .attr ('transform',function (d){
-                            //     return'translate('+ generalattr.xRescale(d.x) +','+ (d.y-generalattr.sh/2)+')'})
-                        .attr ('x',function (d){
-                                return generalattr.xRescale(d.x)})
-                            .attr ('y',function (d){
-                                return (d.y-generalattr.sh/2)})
+                            .attr ('transform',function (d){
+                                return'translate('+ generalattr.xRescale(d.x) +','+ (d.y-generalattr.sh/2)+')'})
+                        // .attr ('x',function (d){
+                        //         return generalattr.xRescale(d.x)})
+                        //     .attr ('y',function (d){
+                        //         return (d.y-generalattr.sh/2)})
                             .on('mouseover',function (d){
                                 generalattr.mouseoverIndex = d.order;
                                 generalattr.force.nodes($scope.prop.previewcharts).alpha(0.01).restart();
@@ -1746,14 +1748,13 @@ d3.tip = function() {
     }
 
     function initNode() {
-        var node = d3.select(document.createElement('div'))
+        var node = d3.select('body').append('div')
         node
             .style('position', 'absolute')
             .style('top', 0)
             .style('opacity', 0)
             .style('pointer-events', 'none')
             .style('box-sizing', 'border-box')
-
         return node.node()
     }
 
@@ -4247,8 +4248,8 @@ angular.module('pcagnosticsviz')
                 typer[prop.type] = d.vlSpec.config.typer.val[prop.type];
                 thum.vlSpec.config = {
                     cell: {
-                        width: 100,
-                        height: nprop.dim?100:30
+                        width: prop.dim?100:200,
+                        height: prop.dim?100:30
                     },
                     axis: {
                         grid: false,
@@ -5506,7 +5507,7 @@ $templateCache.put("components/cqlQueryEditor/cqlQueryEditor.html","<div class=\
 $templateCache.put("components/d3-biplot/bi-plot.html","<svg id=\"bi-plot\" width=\"100%\" class=\"biplot\"><g id=\"bi-plot2\"></g><rect class=\"overlay\"></rect><g id=\"bi-plot-g\"><g id=\"bi-plot-axis\"></g><g id=\"bi-plot-point\"></g></g></svg>");
 $templateCache.put("components/d3-guideplot/gplot.html","<div class=\"gplot\" ng-click=\"explore()\"><svg class=\"gplotSvg\" id=\"gplot{{pcaDef}}\"></svg></div>");
 $templateCache.put("components/d3-guideplot/guide-plot.html","<div id=\"guide-plot-group\" class=\"guideplot\"><g-plot ng-repeat=\"pcaDef in pcaDefs\" pca-def=\"pcaDef\" id=\"{{pcaDef}}\"></g-plot></div>");
-$templateCache.put("components/guidemenu/guideMenu.html","<div class=\"contain\"><div class=\"sidebar-header\"><h2>Guided navigation</h2><div class=\"features\"><div id=\"typeselectcontain\"><label for=\"typeselect\">Feature type</label><select class=\"typeselect field-info pill\" id=\"typeselect\" ng-model=\"prop.type\" ng-options=\"type for type in props\" ng-change=\"typeChange()\"></select></div><div><label for=\"markselect\">Abstraction</label><select class=\"markselect field-info pill\" id=\"markselect\" ng-model=\"prop.mark\" ng-options=\"item.mark as item.label for item in marks\" ng-change=\"markChange()\"></select></div></div></div><div class=\"thum\"><svg viewbox=\"0 0 1200 1200\" width=\"100%\" height=\"100%\" preserveaspectratio=\"xMidYMid meet\" style=\"background-color: white;\"><g class=\"oneDimentional\"><g class=\"twoDimentional\"></g><foreignobject class=\"foreignObject\" ng-if=\"prop.dim==0\" ng-repeat=\"chart in prop.previewcharts\" ng-class=\"{\'active\': prop.pos== $index}\" x=\"-135\" y=\"-65\" width=\"300\" height=\"110\"><vl-plot-group ng-if=\"prop.previewcharts\" class=\"main-vl-plot-group card thumplot no-shrink\" ng-class=\"{\'square\':prop.dim}\" ng-click=\"previewSlider($index)\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"false\" show-axis-prop=\"true\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\" priority=\"priority * $index\"></vl-plot-group></foreignobject></g></svg><canvas width=\"1200\" height=\"1200\" ng-hide=\"prop.dim!=1\"></canvas></div></div>");
 $templateCache.put("components/d3-slidegraph/slide-com.html","<li class=\"item wrap\"><vl-plot-group ng-if=\"chart!=undefined\" class=\"item\" chart=\"chart\" show-bookmark=\"true\" show-debug=\"false\" show-select=\"false\" show-axis-prop=\"false\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"true\"></vl-plot-group></li>");
 $templateCache.put("components/d3-slidegraph/slide-graph.html","<div class=\"slideGraph card no-top-margin\"><h2>Focus view</h2><div class=\"wrap\"><button class=\"butSlider\" ng-click=\"prev()\"><i class=\"fa fa-angle-double-up\"></i></button><div class=\"scroller\"><ul class=\"items-slider\"><slide-com ng-repeat=\"chart in buffer track by $index\" chart=\"chart\"></slide-com></ul></div><button class=\"butSlider\" ng-click=\"next()\"><i class=\"fa fa-angle-double-down\"></i></button></div></div>");
+$templateCache.put("components/guidemenu/guideMenu.html","<div class=\"contain\"><div class=\"sidebar-header\"><h2>Guided navigation</h2><div class=\"features\"><div id=\"typeselectcontain\"><label for=\"typeselect\">Feature type</label><select class=\"typeselect field-info pill\" id=\"typeselect\" ng-model=\"prop.type\" ng-options=\"type for type in props\" ng-change=\"typeChange()\"></select></div><div><label for=\"markselect\">Abstraction</label><select class=\"markselect field-info pill\" id=\"markselect\" ng-model=\"prop.mark\" ng-options=\"item.mark as item.label for item in marks\" ng-change=\"markChange()\"></select></div></div></div><div class=\"thum\"><svg viewbox=\"0 0 1200 1200\" width=\"100%\" height=\"100%\" preserveaspectratio=\"xMidYMid meet\" style=\"background-color: white;\"><g class=\"oneDimentional\"><g class=\"twoDimentional\"></g><g class=\"foreignObject\" ng-if=\"prop.dim==0\" ng-repeat=\"chart in prop.previewcharts track by generateID(chart)\" ng-class=\"{\'active\': prop.pos== $index}\"><foreignobject x=\"-135\" y=\"-65\" width=\"300\" height=\"110\"><vl-plot-group ng-if=\"prop.previewcharts\" class=\"main-vl-plot-group card thumplot no-shrink\" ng-class=\"{\'square\':prop.dim}\" ng-click=\"previewSlider($index)\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"false\" show-axis-prop=\"true\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\" priority=\"priority * $index\"></vl-plot-group></foreignobject></g></g></svg><canvas class=\"scatterplot\" width=\"1200\" height=\"1200\" ng-hide=\"prop.dim!=1\"></canvas></div></div>");
 $templateCache.put("components/vgSpecEditor/vgSpecEditor.html","<div class=\"card scroll-y abs-100 vflex no-right-margin\"><div><div class=\"right\"><a class=\"command\" ui-zeroclip=\"\" zeroclip-model=\"Spec.chart.vgSpec | compactJSON\">Copy</a><lyra-export></lyra-export></div><h3>Vega Specification</h3></div><textarea class=\"vgspec flex-grow-1\" json-input=\"\" disabled=\"disabled\" type=\"text\" ng-model=\"Spec.chart.vgSpec\"></textarea></div>");}]);
