@@ -771,371 +771,6 @@ angular.module('pcagnosticsviz')
         }
     });
 
-'use strict';
-angular.module('pcagnosticsviz')
-    .directive('guidePlot', ["PCAplot", function(PCAplot) {
-        //template: "<svg id =\'bi-plot\' width=\'100%\' class=\"\"></svg>",
-        return {
-            templateUrl: 'components/d3-guideplot/guide-plot.html',
-            replace: true,
-            restrict: 'E',
-            scope: {
-                pcaDefs: '<',
-            },
-            link: function ($scope) {
-                //scope.PCAplot = PCAplot;
-            }
-        }
-    }]);
-
-'use strict';
-angular.module('pcagnosticsviz')
-    .directive('gPlot', ["PCAplot", function(PCAplot){
-        //template: "<svg id =\'bi-plot\' width=\'100%\' class=\"\"></svg>",
-        return {
-            templateUrl: 'components/d3-guideplot/gplot.html',
-            replace: true,
-            scope: {
-                pcaDef: '=', // Two-way
-            },
-            link: function postLink(scope, element){
-                scope.PCAplot = PCAplot;
-                d3.select(element[0]).select('svg')
-                    .attr('width',element.width())
-                    .attr('height',element.height());
-                PCAplot.plotguide(d3.select(element[0]).select('svg'), scope.pcaDef[0],scope.pcaDef[1]);
-            },
-            controller: ["$scope", function ($scope) {
-                console.log("me");
-                // d3.selectAll('.background-guideplot')
-                //     .style('fill', '#ffffff')
-                //     .attr('width', $('.guideplot').width())
-                //     .attr('height', $('.guideplot').height());
-                //$scope.idplot = "gplot"+$scope.pcdDef;
-            }]
-        }
-    }]);
-
-(function() {
-
-// Inspired by http://informationandvisualization.de/blog/box-plot
-    d3.box = function() {
-        var width = 1,
-            height = 1,
-            duration = 0,
-            domain = null,
-            value = Number,
-            whiskers = boxWhiskers,
-            quartiles = boxQuartiles,
-            showLabels = true, // whether or not to show text labels
-            numBars = 4,
-            curBar = 1,
-            tickFormat = null;
-
-        // For each small multiple…
-        function box(g) {
-            g.each(function(data, i) {
-                //d = d.map(value).sort(d3.ascending);
-                //var boxIndex = data[0];
-                //var boxIndex = 1;
-                var d = data[1].sort(d3.ascending);
-
-                // console.log(boxIndex);
-                //console.log(d);
-
-                var g = d3.select(this),
-                    n = d.length,
-                    min = d[0],
-                    max = d[n - 1];
-
-                // Compute quartiles. Must return exactly 3 elements.
-                var quartileData = d.quartiles = quartiles(d);
-
-                // Compute whiskers. Must return exactly 2 elements, or null.
-                var whiskerIndices = whiskers && whiskers.call(this, d, i),
-                    whiskerData = whiskerIndices && whiskerIndices.map(function(i) { return d[i]; });
-
-                // Compute outliers. If no whiskers are specified, all data are "outliers".
-                // We compute the outliers as indices, so that we can join across transitions!
-                var outlierIndices = whiskerIndices
-                    ? d3.range(0, whiskerIndices[0]).concat(d3.range(whiskerIndices[1] + 1, n))
-                    : d3.range(n);
-
-                // Compute the new x-scale.
-                var x1 = d3.scale.linear()
-                    .domain(domain && domain.call(this, d, i) || [min, max])
-                    .range([height, 0]);
-
-                // Retrieve the old x-scale, if this is an update.
-                var x0 = this.__chart__ || d3.scale.linear()
-                    .domain([0, Infinity])
-                    // .domain([0, max])
-                    .range(x1.range());
-
-                // Stash the new scale.
-                this.__chart__ = x1;
-
-                // Note: the box, median, and box tick elements are fixed in number,
-                // so we only have to handle enter and update. In contrast, the outliers
-                // and other elements are variable, so we need to exit them! Variable
-                // elements also fade in and out.
-
-                // Update center line: the vertical line spanning the whiskers.
-                var center = g.selectAll("line.center")
-                    .data(whiskerData ? [whiskerData] : []);
-
-                //vertical line
-                center.enter().insert("line", "rect")
-                    .attr("class", "center")
-                    .attr("x1", width / 2)
-                    .attr("y1", function(d) { return x0(d[0]); })
-                    .attr("x2", width / 2)
-                    .attr("y2", function(d) { return x0(d[1]); })
-                    .style("opacity", 1e-6)
-                    .transition()
-                    .duration(duration)
-                    .style("opacity", 1)
-                    .attr("y1", function(d) { return x1(d[0]); })
-                    .attr("y2", function(d) { return x1(d[1]); });
-
-                center.transition()
-                    .duration(duration)
-                    .style("opacity", 1)
-                    .attr("y1", function(d) { return x1(d[0]); })
-                    .attr("y2", function(d) { return x1(d[1]); });
-
-                center.exit().transition()
-                    .duration(duration)
-                    .style("opacity", 1e-6)
-                    .attr("y1", function(d) { return x1(d[0]); })
-                    .attr("y2", function(d) { return x1(d[1]); })
-                    .remove();
-
-                // Update innerquartile box.
-                var box = g.selectAll("rect.box")
-                    .data([quartileData]);
-
-                box.enter().append("rect")
-                    .attr("class", "box")
-                    .attr("x", 0)
-                    .attr("y", function(d) { return x0(d[2]); })
-                    .attr("width", width)
-                    .attr("height", function(d) { return x0(d[0]) - x0(d[2]); })
-                    .transition()
-                    .duration(duration)
-                    .attr("y", function(d) { return x1(d[2]); })
-                    .attr("height", function(d) { return x1(d[0]) - x1(d[2]); });
-
-                box.transition()
-                    .duration(duration)
-                    .attr("y", function(d) { return x1(d[2]); })
-                    .attr("height", function(d) { return x1(d[0]) - x1(d[2]); });
-
-                // Update median line.
-                var medianLine = g.selectAll("line.median")
-                    .data([quartileData[1]]);
-
-                medianLine.enter().append("line")
-                    .attr("class", "median")
-                    .attr("x1", 0)
-                    .attr("y1", x0)
-                    .attr("x2", width)
-                    .attr("y2", x0)
-                    .transition()
-                    .duration(duration)
-                    .attr("y1", x1)
-                    .attr("y2", x1);
-
-                medianLine.transition()
-                    .duration(duration)
-                    .attr("y1", x1)
-                    .attr("y2", x1);
-
-                // Update whiskers.
-                var whisker = g.selectAll("line.whisker")
-                    .data(whiskerData || []);
-
-                whisker.enter().insert("line", "circle, text")
-                    .attr("class", "whisker")
-                    .attr("x1", 0)
-                    .attr("y1", x0)
-                    .attr("x2", 0 + width)
-                    .attr("y2", x0)
-                    .style("opacity", 1e-6)
-                    .transition()
-                    .duration(duration)
-                    .attr("y1", x1)
-                    .attr("y2", x1)
-                    .style("opacity", 1);
-
-                whisker.transition()
-                    .duration(duration)
-                    .attr("y1", x1)
-                    .attr("y2", x1)
-                    .style("opacity", 1);
-
-                whisker.exit().transition()
-                    .duration(duration)
-                    .attr("y1", x1)
-                    .attr("y2", x1)
-                    .style("opacity", 1e-6)
-                    .remove();
-
-                // Update outliers.
-                var outlier = g.selectAll("circle.outlier")
-                    .data(outlierIndices, Number);
-
-                outlier.enter().insert("circle", "text")
-                    .attr("class", "outlier")
-                    .attr("r", 5)
-                    .attr("cx", width / 2)
-                    .attr("cy", function(i) { return x0(d[i]); })
-                    .style("opacity", 1e-6)
-                    .transition()
-                    .duration(duration)
-                    .attr("cy", function(i) { return x1(d[i]); })
-                    .style("opacity", 1);
-
-                outlier.transition()
-                    .duration(duration)
-                    .attr("cy", function(i) { return x1(d[i]); })
-                    .style("opacity", 1);
-
-                outlier.exit().transition()
-                    .duration(duration)
-                    .attr("cy", function(i) { return x1(d[i]); })
-                    .style("opacity", 1e-6)
-                    .remove();
-
-                // Compute the tick format.
-                var format = tickFormat || x1.tickFormat(8);
-
-                // Update box ticks.
-                var boxTick = g.selectAll("text.box")
-                    .data(quartileData);
-                if(showLabels == true) {
-                    boxTick.enter().append("text")
-                        .attr("class", "box")
-                        .attr("dy", ".3em")
-                        .attr("dx", function(d, i) { return i & 1 ? 6 : -6 })
-                        .attr("x", function(d, i) { return i & 1 ?  + width : 0 })
-                        .attr("y", x0)
-                        .attr("text-anchor", function(d, i) { return i & 1 ? "start" : "end"; })
-                        .text(format)
-                        .transition()
-                        .duration(duration)
-                        .attr("y", x1);
-                }
-
-                boxTick.transition()
-                    .duration(duration)
-                    .text(format)
-                    .attr("y", x1);
-
-                // Update whisker ticks. These are handled separately from the box
-                // ticks because they may or may not exist, and we want don't want
-                // to join box ticks pre-transition with whisker ticks post-.
-                var whiskerTick = g.selectAll("text.whisker")
-                    .data(whiskerData || []);
-                if(showLabels == true) {
-                    whiskerTick.enter().append("text")
-                        .attr("class", "whisker")
-                        .attr("dy", ".3em")
-                        .attr("dx", 6)
-                        .attr("x", width)
-                        .attr("y", x0)
-                        .text(format)
-                        .style("opacity", 1e-6)
-                        .transition()
-                        .duration(duration)
-                        .attr("y", x1)
-                        .style("opacity", 1);
-                }
-                whiskerTick.transition()
-                    .duration(duration)
-                    .text(format)
-                    .attr("y", x1)
-                    .style("opacity", 1);
-
-                whiskerTick.exit().transition()
-                    .duration(duration)
-                    .attr("y", x1)
-                    .style("opacity", 1e-6)
-                    .remove();
-            });
-            d3.timer.flush();
-        }
-
-        box.width = function(x) {
-            if (!arguments.length) return width;
-            width = x;
-            return box;
-        };
-
-        box.height = function(x) {
-            if (!arguments.length) return height;
-            height = x;
-            return box;
-        };
-
-        box.tickFormat = function(x) {
-            if (!arguments.length) return tickFormat;
-            tickFormat = x;
-            return box;
-        };
-
-        box.duration = function(x) {
-            if (!arguments.length) return duration;
-            duration = x;
-            return box;
-        };
-
-        box.domain = function(x) {
-            if (!arguments.length) return domain;
-            domain = x == null ? x : d3.functor(x);
-            return box;
-        };
-
-        box.value = function(x) {
-            if (!arguments.length) return value;
-            value = x;
-            return box;
-        };
-
-        box.whiskers = function(x) {
-            if (!arguments.length) return whiskers;
-            whiskers = x;
-            return box;
-        };
-
-        box.showLabels = function(x) {
-            if (!arguments.length) return showLabels;
-            showLabels = x;
-            return box;
-        };
-
-        box.quartiles = function(x) {
-            if (!arguments.length) return quartiles;
-            quartiles = x;
-            return box;
-        };
-
-        return box;
-    };
-
-    function boxWhiskers(d) {
-        return [0, d.length - 1];
-    }
-
-    function boxQuartiles(d) {
-        return [
-            d3.quantile(d, .25),
-            d3.quantile(d, .5),
-            d3.quantile(d, .75)
-        ];
-    }
-
-})();
 var PCA = function(){
     this.scale = scale;
     this.pca = pca;
@@ -1871,19 +1506,370 @@ angular.module('pcagnosticsviz')
         }]});
 
 'use strict';
-
 angular.module('pcagnosticsviz')
-  .directive('cqlQueryEditor', ["Spec", function(Spec) {
-    return {
-      templateUrl: 'components/cqlQueryEditor/cqlQueryEditor.html',
-      restrict: 'E',
-      scope: {},
-      link: function postLink(scope /*, element, attrs*/) {
-        scope.Spec = Spec;
-      }
-    };
-  }]);
+    .directive('guidePlot', ["PCAplot", function(PCAplot) {
+        //template: "<svg id =\'bi-plot\' width=\'100%\' class=\"\"></svg>",
+        return {
+            templateUrl: 'components/d3-guideplot/guide-plot.html',
+            replace: true,
+            restrict: 'E',
+            scope: {
+                pcaDefs: '<',
+            },
+            link: function ($scope) {
+                //scope.PCAplot = PCAplot;
+            }
+        }
+    }]);
 
+'use strict';
+angular.module('pcagnosticsviz')
+    .directive('gPlot', ["PCAplot", function(PCAplot){
+        //template: "<svg id =\'bi-plot\' width=\'100%\' class=\"\"></svg>",
+        return {
+            templateUrl: 'components/d3-guideplot/gplot.html',
+            replace: true,
+            scope: {
+                pcaDef: '=', // Two-way
+            },
+            link: function postLink(scope, element){
+                scope.PCAplot = PCAplot;
+                d3.select(element[0]).select('svg')
+                    .attr('width',element.width())
+                    .attr('height',element.height());
+                PCAplot.plotguide(d3.select(element[0]).select('svg'), scope.pcaDef[0],scope.pcaDef[1]);
+            },
+            controller: ["$scope", function ($scope) {
+                console.log("me");
+                // d3.selectAll('.background-guideplot')
+                //     .style('fill', '#ffffff')
+                //     .attr('width', $('.guideplot').width())
+                //     .attr('height', $('.guideplot').height());
+                //$scope.idplot = "gplot"+$scope.pcdDef;
+            }]
+        }
+    }]);
+
+(function() {
+
+// Inspired by http://informationandvisualization.de/blog/box-plot
+    d3.box = function() {
+        var width = 1,
+            height = 1,
+            duration = 0,
+            domain = null,
+            value = Number,
+            whiskers = boxWhiskers,
+            quartiles = boxQuartiles,
+            showLabels = true, // whether or not to show text labels
+            numBars = 4,
+            curBar = 1,
+            tickFormat = null;
+
+        // For each small multiple…
+        function box(g) {
+            g.each(function(data, i) {
+                //d = d.map(value).sort(d3.ascending);
+                //var boxIndex = data[0];
+                //var boxIndex = 1;
+                var d = data[1].sort(d3.ascending);
+
+                // console.log(boxIndex);
+                //console.log(d);
+
+                var g = d3.select(this),
+                    n = d.length,
+                    min = d[0],
+                    max = d[n - 1];
+
+                // Compute quartiles. Must return exactly 3 elements.
+                var quartileData = d.quartiles = quartiles(d);
+
+                // Compute whiskers. Must return exactly 2 elements, or null.
+                var whiskerIndices = whiskers && whiskers.call(this, d, i),
+                    whiskerData = whiskerIndices && whiskerIndices.map(function(i) { return d[i]; });
+
+                // Compute outliers. If no whiskers are specified, all data are "outliers".
+                // We compute the outliers as indices, so that we can join across transitions!
+                var outlierIndices = whiskerIndices
+                    ? d3.range(0, whiskerIndices[0]).concat(d3.range(whiskerIndices[1] + 1, n))
+                    : d3.range(n);
+
+                // Compute the new x-scale.
+                var x1 = d3.scale.linear()
+                    .domain(domain && domain.call(this, d, i) || [min, max])
+                    .range([height, 0]);
+
+                // Retrieve the old x-scale, if this is an update.
+                var x0 = this.__chart__ || d3.scale.linear()
+                    .domain([0, Infinity])
+                    // .domain([0, max])
+                    .range(x1.range());
+
+                // Stash the new scale.
+                this.__chart__ = x1;
+
+                // Note: the box, median, and box tick elements are fixed in number,
+                // so we only have to handle enter and update. In contrast, the outliers
+                // and other elements are variable, so we need to exit them! Variable
+                // elements also fade in and out.
+
+                // Update center line: the vertical line spanning the whiskers.
+                var center = g.selectAll("line.center")
+                    .data(whiskerData ? [whiskerData] : []);
+
+                //vertical line
+                center.enter().insert("line", "rect")
+                    .attr("class", "center")
+                    .attr("x1", width / 2)
+                    .attr("y1", function(d) { return x0(d[0]); })
+                    .attr("x2", width / 2)
+                    .attr("y2", function(d) { return x0(d[1]); })
+                    .style("opacity", 1e-6)
+                    .transition()
+                    .duration(duration)
+                    .style("opacity", 1)
+                    .attr("y1", function(d) { return x1(d[0]); })
+                    .attr("y2", function(d) { return x1(d[1]); });
+
+                center.transition()
+                    .duration(duration)
+                    .style("opacity", 1)
+                    .attr("y1", function(d) { return x1(d[0]); })
+                    .attr("y2", function(d) { return x1(d[1]); });
+
+                center.exit().transition()
+                    .duration(duration)
+                    .style("opacity", 1e-6)
+                    .attr("y1", function(d) { return x1(d[0]); })
+                    .attr("y2", function(d) { return x1(d[1]); })
+                    .remove();
+
+                // Update innerquartile box.
+                var box = g.selectAll("rect.box")
+                    .data([quartileData]);
+
+                box.enter().append("rect")
+                    .attr("class", "box")
+                    .attr("x", 0)
+                    .attr("y", function(d) { return x0(d[2]); })
+                    .attr("width", width)
+                    .attr("height", function(d) { return x0(d[0]) - x0(d[2]); })
+                    .transition()
+                    .duration(duration)
+                    .attr("y", function(d) { return x1(d[2]); })
+                    .attr("height", function(d) { return x1(d[0]) - x1(d[2]); });
+
+                box.transition()
+                    .duration(duration)
+                    .attr("y", function(d) { return x1(d[2]); })
+                    .attr("height", function(d) { return x1(d[0]) - x1(d[2]); });
+
+                // Update median line.
+                var medianLine = g.selectAll("line.median")
+                    .data([quartileData[1]]);
+
+                medianLine.enter().append("line")
+                    .attr("class", "median")
+                    .attr("x1", 0)
+                    .attr("y1", x0)
+                    .attr("x2", width)
+                    .attr("y2", x0)
+                    .transition()
+                    .duration(duration)
+                    .attr("y1", x1)
+                    .attr("y2", x1);
+
+                medianLine.transition()
+                    .duration(duration)
+                    .attr("y1", x1)
+                    .attr("y2", x1);
+
+                // Update whiskers.
+                var whisker = g.selectAll("line.whisker")
+                    .data(whiskerData || []);
+
+                whisker.enter().insert("line", "circle, text")
+                    .attr("class", "whisker")
+                    .attr("x1", 0)
+                    .attr("y1", x0)
+                    .attr("x2", 0 + width)
+                    .attr("y2", x0)
+                    .style("opacity", 1e-6)
+                    .transition()
+                    .duration(duration)
+                    .attr("y1", x1)
+                    .attr("y2", x1)
+                    .style("opacity", 1);
+
+                whisker.transition()
+                    .duration(duration)
+                    .attr("y1", x1)
+                    .attr("y2", x1)
+                    .style("opacity", 1);
+
+                whisker.exit().transition()
+                    .duration(duration)
+                    .attr("y1", x1)
+                    .attr("y2", x1)
+                    .style("opacity", 1e-6)
+                    .remove();
+
+                // Update outliers.
+                var outlier = g.selectAll("circle.outlier")
+                    .data(outlierIndices, Number);
+
+                outlier.enter().insert("circle", "text")
+                    .attr("class", "outlier")
+                    .attr("r", 5)
+                    .attr("cx", width / 2)
+                    .attr("cy", function(i) { return x0(d[i]); })
+                    .style("opacity", 1e-6)
+                    .transition()
+                    .duration(duration)
+                    .attr("cy", function(i) { return x1(d[i]); })
+                    .style("opacity", 1);
+
+                outlier.transition()
+                    .duration(duration)
+                    .attr("cy", function(i) { return x1(d[i]); })
+                    .style("opacity", 1);
+
+                outlier.exit().transition()
+                    .duration(duration)
+                    .attr("cy", function(i) { return x1(d[i]); })
+                    .style("opacity", 1e-6)
+                    .remove();
+
+                // Compute the tick format.
+                var format = tickFormat || x1.tickFormat(8);
+
+                // Update box ticks.
+                var boxTick = g.selectAll("text.box")
+                    .data(quartileData);
+                if(showLabels == true) {
+                    boxTick.enter().append("text")
+                        .attr("class", "box")
+                        .attr("dy", ".3em")
+                        .attr("dx", function(d, i) { return i & 1 ? 6 : -6 })
+                        .attr("x", function(d, i) { return i & 1 ?  + width : 0 })
+                        .attr("y", x0)
+                        .attr("text-anchor", function(d, i) { return i & 1 ? "start" : "end"; })
+                        .text(format)
+                        .transition()
+                        .duration(duration)
+                        .attr("y", x1);
+                }
+
+                boxTick.transition()
+                    .duration(duration)
+                    .text(format)
+                    .attr("y", x1);
+
+                // Update whisker ticks. These are handled separately from the box
+                // ticks because they may or may not exist, and we want don't want
+                // to join box ticks pre-transition with whisker ticks post-.
+                var whiskerTick = g.selectAll("text.whisker")
+                    .data(whiskerData || []);
+                if(showLabels == true) {
+                    whiskerTick.enter().append("text")
+                        .attr("class", "whisker")
+                        .attr("dy", ".3em")
+                        .attr("dx", 6)
+                        .attr("x", width)
+                        .attr("y", x0)
+                        .text(format)
+                        .style("opacity", 1e-6)
+                        .transition()
+                        .duration(duration)
+                        .attr("y", x1)
+                        .style("opacity", 1);
+                }
+                whiskerTick.transition()
+                    .duration(duration)
+                    .text(format)
+                    .attr("y", x1)
+                    .style("opacity", 1);
+
+                whiskerTick.exit().transition()
+                    .duration(duration)
+                    .attr("y", x1)
+                    .style("opacity", 1e-6)
+                    .remove();
+            });
+            d3.timer.flush();
+        }
+
+        box.width = function(x) {
+            if (!arguments.length) return width;
+            width = x;
+            return box;
+        };
+
+        box.height = function(x) {
+            if (!arguments.length) return height;
+            height = x;
+            return box;
+        };
+
+        box.tickFormat = function(x) {
+            if (!arguments.length) return tickFormat;
+            tickFormat = x;
+            return box;
+        };
+
+        box.duration = function(x) {
+            if (!arguments.length) return duration;
+            duration = x;
+            return box;
+        };
+
+        box.domain = function(x) {
+            if (!arguments.length) return domain;
+            domain = x == null ? x : d3.functor(x);
+            return box;
+        };
+
+        box.value = function(x) {
+            if (!arguments.length) return value;
+            value = x;
+            return box;
+        };
+
+        box.whiskers = function(x) {
+            if (!arguments.length) return whiskers;
+            whiskers = x;
+            return box;
+        };
+
+        box.showLabels = function(x) {
+            if (!arguments.length) return showLabels;
+            showLabels = x;
+            return box;
+        };
+
+        box.quartiles = function(x) {
+            if (!arguments.length) return quartiles;
+            quartiles = x;
+            return box;
+        };
+
+        return box;
+    };
+
+    function boxWhiskers(d) {
+        return [0, d.length - 1];
+    }
+
+    function boxQuartiles(d) {
+        return [
+            d3.quantile(d, .25),
+            d3.quantile(d, .5),
+            d3.quantile(d, .75)
+        ];
+    }
+
+})();
 'use strict';
 
 angular.module('pcagnosticsviz')
@@ -1897,6 +1883,20 @@ angular.module('pcagnosticsviz')
       }]
     };
   });
+
+'use strict';
+
+angular.module('pcagnosticsviz')
+  .directive('cqlQueryEditor', ["Spec", function(Spec) {
+    return {
+      templateUrl: 'components/cqlQueryEditor/cqlQueryEditor.html',
+      restrict: 'E',
+      scope: {},
+      link: function postLink(scope /*, element, attrs*/) {
+        scope.Spec = Spec;
+      }
+    };
+  }]);
 
 'use strict';
 
@@ -4879,13 +4879,14 @@ angular.module('pcagnosticsviz')
                 });
                 update_dataref(dataref);
             }catch(e){}
-            if (PCAplot.dim==1) {
+            if (PCAplot.dim===1) {
                 PCAplot.firstrun =true;
                 PCAplot.plot(Dataset.schema.fieldSchemas.map(function (d) {
                     var tem = {field: d.field};
                     tem[d.field] = d.scag;
                     return tem;
-                }), 1)
+                }), 1);
+                PCAplot.updateSpec(PCAplot.prop);
             }
         }
         PCAplot.initialize = _.once(handleScagnostic);
@@ -5530,13 +5531,13 @@ angular.module('pcagnosticsviz')
     return Alternatives;
   }]);
 
-angular.module("pcagnosticsviz").run(["$templateCache", function($templateCache) {$templateCache.put("components/configurationeditor/configurationeditor.html","<form><pre>{{ Config.config | compactJSON }}</pre></form>");
+angular.module("pcagnosticsviz").run(["$templateCache", function($templateCache) {$templateCache.put("app/main/main.html","<div ng-controller=\"MainCtrl\" ng-class=\"{light: themeDrak}\" class=\"flex-root vflex full-width full-height\" ng-mousedown=\"onMouseDownLog($event)\" ng-mouseenter=\"onMouseEnterLog($event)\" ng-mouseover=\"onMouseOverLog($event)\"><div class=\"full-width no-shrink shadow\"><div class=\"card top-card no-right-margin no-top-margin\"><div class=\"hflex\" style=\"justify-content: space-between;\"><div id=\"logo\" ng-click=\"Logger.export()\"></div><div class=\"pane\"><div class=\"controls\"><a ng-show=\"Bookmarks.isSupported\" class=\"command\" ng-click=\"showModal(\'bookmark-list\')\"><i class=\"fa fa-bookmark\"></i> Bookmarks ({{Bookmarks.list.length}})</a> <a class=\"command\" ng-click=\"chron.undo()\" ng-class=\"{disabled: !canUndo}\"><i class=\"fa fa-undo\"></i> Undo</a> <a class=\"command\" ng-click=\"chron.redo()\" ng-class=\"{disabled: !canRedo}\"><i class=\"fa fa-repeat\"></i> Redo</a></div></div><div class=\"pane\"><div class=\"controls\"><a class=\"command\" ng-if=\"themeDrak\" ng-click=\"changetheme()\"><i class=\"fa fa-moon-o\"></i> Dark</a> <a class=\"command\" ng-if=\"!themeDrak\" ng-click=\"changetheme()\"><i class=\"fa fa-sun-o\"></i> Light</a></div></div></div></div><alert-messages></alert-messages></div><div class=\"hflex full-width main-panel grow-1\"><div class=\"pane data-pane noselect\"><div class=\"card no-top-margin data-card abs-100 modifedside\"><div class=\"sidebar-header\" ng-if=\"!embedded\"><h2>Data</h2><dataset-selector class=\"right\"></dataset-selector><div class=\"current-dataset\" title=\"{{Dataset.currentDataset.name}}\"><i class=\"fa fa-database\"></i> <span class=\"dataset-name\">{{Dataset.currentDataset.name}}</span></div><div class=\"current-dataset\"><span class=\"dataset-info\">Data have {{Dataset.data.length}} datapoint</span><br><span class=\"dataset-info\">and {{Dataset.schema.fieldSchemas.length}} dimentions</span></div></div><h3>Overview</h3><bi-plot></bi-plot><h3>Exemplar plots</h3><div class=\"scroll-y-nox scroll-y\"><vl-plot-group ng-class=\"{square: PCAplot.dim}\" ng-if=\"PCAplot.chart\" class=\"main-vl-plot-group card no-shrink guideplot\" ng-repeat=\"chart in PCAplot.charts\" ng-click=\"PCAplot.prop2spec(chart.prop)\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"true\" show-axis-prop=\"false\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\" style=\"margin-top: 0px; margin-bottom: 3px;\"></vl-plot-group><div class=\"hflex full-width\"><h3>Fields</h3><div class=\"header-drop active\"><i class=\"fa fa-caret-down droplist\" ng-click=\"fieldShow = !fieldShow\"></i></div></div><div ng-show=\"fieldShow\"><schema-list field-defs=\"Dataset.schema.fieldSchemas\" order-by=\"Dataset.fieldOrder\" show-count=\"true\" filter-manager=\"FilterManager\" show-add=\"true\"></schema-list></div><div ng-show=\"WildcardsShow\"><schema-list field-defs=\"Wildcards.list\" show-add=\"true\" show-drop=\"true\"></schema-list></div></div></div>Ma</div><div class=\"pane vis-pane\"><div class=\"vis-pane-container abs-100\" ng-class=\"{\'scroll-y\': !hideExplore || !Spec.isSpecific, \'no-scroll-y\': hideExplore && Spec.isSpecific}\"><div class=\"mainareacustom full-width\"><div class=\"pane encoding-pane\" style=\"min-height: 200px;\"><shelves spec=\"Spec.spec\" filter-manager=\"FilterManager\" preview=\"false\" support-any=\"true\" ng-class=\"shelvescustom\" prop=\"PCAplot.prop\" custommarks=\"PCAplot.marks\" props=\"PCAplot.types\" updatefunc=\"PCAplot.updateSpec\" hidecustom=\"PCAplot.prop&&Spec.isSpecific && !Spec.isEmptyPlot\"></shelves><shelves class=\"preview\" ng-show=\"Spec.previewedSpec\" spec=\"Spec.previewedSpec || Spec.emptySpec\" preview=\"true\" support-any=\"true\"></shelves></div><slide-graph ng-if=\"PCAplot.prop.charts && Spec.isSpecific && !Spec.isEmptyPlot\" charts=\"PCAplot.prop.charts\" pos=\"PCAplot.prop.pos\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></slide-graph></div><div class=\"alternatives-pane card navigation\" ng-class=\"{collapse: hideExplore}\" ng-if=\"PCAplot.prop&&Spec.isSpecific && !Spec.isEmptyPlot\"><guide-menu prop=\"PCAplot.prop\" priority=\"2\" marks=\"PCAplot.marks\" props=\"PCAplot.types\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></guide-menu></div></div></div><div class=\"pane guidemenu grow-1\" ng-if=\"showExtraGuide||PCAplot.prop\"><div class=\"alternatives-pane card\" ng-class=\"{collapse: hideExplore}\" ng-if=\"Spec.isSpecific && !Spec.isEmptyPlot\"><div class=\"alternatives-header\"><div class=\"right alternatives-jump\"><a class=\"toggle-hide-explore\" ng-click=\"toggleHideExplore()\"><span ng-show=\"hideExplore\">Show <i class=\"fa fa-toggle-up\"></i></span> <span ng-show=\"!hideExplore\">Hide <i class=\"fa fa-toggle-down\"></i></span></a></div><h2>Expanded views</h2></div><div class=\"alternatives-content scroll-y\" ng-if=\"!hideExplore\"><vl-plot-group-list ng-repeat=\"alternative in PCAplot.alternatives\" ng-if=\"alternative.charts.length > 0 && (!$parent.alternativeType || $parent.alternativeType === alternative.type)\" id=\"alternatives-{{alternative.type}}\" list-title=\"alternative.title\" charts=\"alternative.charts\" enable-pills-preview=\"true\" priority=\"$index * 1000\" initial-limit=\"alternative.limit || null\" post-select-action=\"$parent.scrollToTop()\" show-query-select=\"true\" query=\"alternative.query\"></vl-plot-group-list></div></div></div></div><div class=\"hflex full-width dev-panel\" ng-if=\"showDevPanel\"><div class=\"pane\" ng-show=\"consts.logToWebSql\"><div class=\"card\"><div>userid: {{Logger.userid}}</div><button ng-click=\"Logger.clear()\">Clear logs</button><br><button ng-click=\"Logger.export()\">Download logs</button></div></div><div class=\"pane config-pane\"><div class=\"card scroll-y abs-100\"><configuration-editor></configuration-editor></div></div><div class=\"pane vl-pane\"><cql-query-editor></cql-query-editor></div><div class=\"pane vg-pane\"><vg-spec-editor></vg-spec-editor></div></div><bookmark-list highlighted=\"Fields.highlighted\" post-select-action=\"scrollToTop\"></bookmark-list><dataset-modal></dataset-modal></div>");
 $templateCache.put("components/cqlQueryEditor/cqlQueryEditor.html","<div class=\"card scroll-y abs-100 vflex\"><div><div class=\"right command\"><a ui-zeroclip=\"\" zeroclip-model=\"Spec.query | compactJSON\">Copy</a></div><h3>CompassQL Query</h3></div><textarea class=\"cqlquery flex-grow-1 full-height\" json-input=\"\" type=\"text\" ng-model=\"Spec.cleanQuery\"></textarea></div>");
+$templateCache.put("components/configurationeditor/configurationeditor.html","<form><pre>{{ Config.config | compactJSON }}</pre></form>");
 $templateCache.put("components/d3-biplot/bi-plot.html","<svg id=\"bi-plot\" width=\"100%\" class=\"biplot\"><g id=\"bi-plot2\"></g><rect class=\"overlay\"></rect><g id=\"bi-plot-g\"><g id=\"bi-plot-axis\"></g><g id=\"bi-plot-point\"></g></g></svg>");
 $templateCache.put("components/d3-guideplot/gplot.html","<div class=\"gplot\" ng-click=\"explore()\"><svg class=\"gplotSvg\" id=\"gplot{{pcaDef}}\"></svg></div>");
 $templateCache.put("components/d3-guideplot/guide-plot.html","<div id=\"guide-plot-group\" class=\"guideplot\"><g-plot ng-repeat=\"pcaDef in pcaDefs\" pca-def=\"pcaDef\" id=\"{{pcaDef}}\"></g-plot></div>");
 $templateCache.put("components/d3-slidegraph/slide-com.html","<li class=\"item wrap\"><vl-plot-group ng-if=\"chart!=undefined\" class=\"item\" chart=\"chart\" show-bookmark=\"true\" show-debug=\"false\" show-select=\"false\" show-axis-prop=\"false\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"true\"></vl-plot-group></li>");
 $templateCache.put("components/d3-slidegraph/slide-graph.html","<div class=\"slideGraph card no-top-margin\"><h2>Focus view</h2><div class=\"wrap\"><button class=\"butSlider\" ng-click=\"prev()\"><i class=\"fa fa-angle-double-up\"></i></button><div class=\"scroller\"><ul class=\"items-slider\"><slide-com ng-repeat=\"chart in buffer track by $index\" chart=\"chart\"></slide-com></ul></div><button class=\"butSlider\" ng-click=\"next()\"><i class=\"fa fa-angle-double-down\"></i></button></div></div>");
 $templateCache.put("components/guidemenu/guideMenu.html","<div class=\"contain\"><div class=\"sidebar-header\"><h2>Guided navigation</h2></div><div class=\"thum\"><svg viewbox=\"0 0 1200 1200\" width=\"100%\" height=\"100%\" preserveaspectratio=\"xMidYMid meet\" style=\"background-color: white;position: relative;\"><g class=\"oneDimentional\"><foreignobject class=\"foreignObject\" ng-if=\"prop.dim==0\" ng-repeat=\"chart in prop.previewcharts track by generateID(chart)\" ng-class=\"{\'active\': prop.pos== $index}\" xmlns=\"http://www.w3.org/1999/xhtml\" x=\"-135\" y=\"-65\" width=\"300\" height=\"110\"><vl-plot-group ng-if=\"prop.previewcharts\" class=\"main-vl-plot-group card thumplot no-shrink\" ng-class=\"{\'square\':prop.dim}\" ng-click=\"previewSlider($index)\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"false\" show-axis-prop=\"true\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\" priority=\"priority * $index\"></vl-plot-group></foreignobject></g><g class=\"twoDimentional\"></g></svg><canvas class=\"scatterplot\" width=\"1200\" height=\"1200\" ng-hide=\"prop.dim!=1\"></canvas></div></div>");
-$templateCache.put("components/vgSpecEditor/vgSpecEditor.html","<div class=\"card scroll-y abs-100 vflex no-right-margin\"><div><div class=\"right\"><a class=\"command\" ui-zeroclip=\"\" zeroclip-model=\"Spec.chart.vgSpec | compactJSON\">Copy</a><lyra-export></lyra-export></div><h3>Vega Specification</h3></div><textarea class=\"vgspec flex-grow-1\" json-input=\"\" disabled=\"disabled\" type=\"text\" ng-model=\"Spec.chart.vgSpec\"></textarea></div>");
-$templateCache.put("app/main/main.html","<div ng-controller=\"MainCtrl\" ng-class=\"{light: themeDrak}\" class=\"flex-root vflex full-width full-height\" ng-mousedown=\"onMouseDownLog($event)\" ng-mouseenter=\"onMouseEnterLog($event)\" ng-mouseover=\"onMouseOverLog($event)\"><div class=\"full-width no-shrink shadow\"><div class=\"card top-card no-right-margin no-top-margin\"><div class=\"hflex\" style=\"justify-content: space-between;\"><div id=\"logo\" ng-click=\"Logger.export()\"></div><div class=\"pane\"><div class=\"controls\"><a ng-show=\"Bookmarks.isSupported\" class=\"command\" ng-click=\"showModal(\'bookmark-list\')\"><i class=\"fa fa-bookmark\"></i> Bookmarks ({{Bookmarks.list.length}})</a> <a class=\"command\" ng-click=\"chron.undo()\" ng-class=\"{disabled: !canUndo}\"><i class=\"fa fa-undo\"></i> Undo</a> <a class=\"command\" ng-click=\"chron.redo()\" ng-class=\"{disabled: !canRedo}\"><i class=\"fa fa-repeat\"></i> Redo</a></div></div><div class=\"pane\"><div class=\"controls\"><a class=\"command\" ng-if=\"themeDrak\" ng-click=\"changetheme()\"><i class=\"fa fa-moon-o\"></i> Dark</a> <a class=\"command\" ng-if=\"!themeDrak\" ng-click=\"changetheme()\"><i class=\"fa fa-sun-o\"></i> Light</a></div></div></div></div><alert-messages></alert-messages></div><div class=\"hflex full-width main-panel grow-1\"><div class=\"pane data-pane noselect\"><div class=\"card no-top-margin data-card abs-100 modifedside\"><div class=\"sidebar-header\" ng-if=\"!embedded\"><h2>Data</h2><dataset-selector class=\"right\"></dataset-selector><div class=\"current-dataset\" title=\"{{Dataset.currentDataset.name}}\"><i class=\"fa fa-database\"></i> <span class=\"dataset-name\">{{Dataset.currentDataset.name}}</span></div><div class=\"current-dataset\"><span class=\"dataset-info\">Data have {{Dataset.data.length}} datapoint</span><br><span class=\"dataset-info\">and {{Dataset.schema.fieldSchemas.length}} dimentions</span></div></div><h3>Overview</h3><bi-plot></bi-plot><h3>Exemplar plots</h3><div class=\"scroll-y-nox scroll-y\"><vl-plot-group ng-class=\"{square: PCAplot.dim}\" ng-if=\"PCAplot.chart\" class=\"main-vl-plot-group card no-shrink guideplot\" ng-repeat=\"chart in PCAplot.charts\" ng-click=\"PCAplot.prop2spec(chart.prop)\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"true\" show-axis-prop=\"false\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\" style=\"margin-top: 0px; margin-bottom: 3px;\"></vl-plot-group><div class=\"hflex full-width\"><h3>Fields</h3><div class=\"header-drop active\"><i class=\"fa fa-caret-down droplist\" ng-click=\"fieldShow = !fieldShow\"></i></div></div><div ng-show=\"fieldShow\"><schema-list field-defs=\"Dataset.schema.fieldSchemas\" order-by=\"Dataset.fieldOrder\" show-count=\"true\" filter-manager=\"FilterManager\" show-add=\"true\"></schema-list></div><div ng-show=\"WildcardsShow\"><schema-list field-defs=\"Wildcards.list\" show-add=\"true\" show-drop=\"true\"></schema-list></div></div></div>Ma</div><div class=\"pane vis-pane\"><div class=\"vis-pane-container abs-100\" ng-class=\"{\'scroll-y\': !hideExplore || !Spec.isSpecific, \'no-scroll-y\': hideExplore && Spec.isSpecific}\"><div class=\"mainareacustom full-width\"><div class=\"pane encoding-pane\" style=\"min-height: 200px;\"><shelves spec=\"Spec.spec\" filter-manager=\"FilterManager\" preview=\"false\" support-any=\"true\" ng-class=\"shelvescustom\" prop=\"PCAplot.prop\" custommarks=\"PCAplot.marks\" props=\"PCAplot.types\" updatefunc=\"PCAplot.updateSpec\" hidecustom=\"PCAplot.prop&&Spec.isSpecific && !Spec.isEmptyPlot\"></shelves><shelves class=\"preview\" ng-show=\"Spec.previewedSpec\" spec=\"Spec.previewedSpec || Spec.emptySpec\" preview=\"true\" support-any=\"true\"></shelves></div><slide-graph ng-if=\"PCAplot.prop.charts && Spec.isSpecific && !Spec.isEmptyPlot\" charts=\"PCAplot.prop.charts\" pos=\"PCAplot.prop.pos\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></slide-graph></div><div class=\"alternatives-pane card navigation\" ng-class=\"{collapse: hideExplore}\" ng-if=\"PCAplot.prop&&Spec.isSpecific && !Spec.isEmptyPlot\"><guide-menu prop=\"PCAplot.prop\" priority=\"2\" marks=\"PCAplot.marks\" props=\"PCAplot.types\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></guide-menu></div></div></div><div class=\"pane guidemenu grow-1\" ng-if=\"showExtraGuide||PCAplot.prop\"><div class=\"alternatives-pane card\" ng-class=\"{collapse: hideExplore}\" ng-if=\"Spec.isSpecific && !Spec.isEmptyPlot\"><div class=\"alternatives-header\"><div class=\"right alternatives-jump\"><a class=\"toggle-hide-explore\" ng-click=\"toggleHideExplore()\"><span ng-show=\"hideExplore\">Show <i class=\"fa fa-toggle-up\"></i></span> <span ng-show=\"!hideExplore\">Hide <i class=\"fa fa-toggle-down\"></i></span></a></div><h2>Expanded views</h2></div><div class=\"alternatives-content scroll-y\" ng-if=\"!hideExplore\"><vl-plot-group-list ng-repeat=\"alternative in PCAplot.alternatives\" ng-if=\"alternative.charts.length > 0 && (!$parent.alternativeType || $parent.alternativeType === alternative.type)\" id=\"alternatives-{{alternative.type}}\" list-title=\"alternative.title\" charts=\"alternative.charts\" enable-pills-preview=\"true\" priority=\"$index * 1000\" initial-limit=\"alternative.limit || null\" post-select-action=\"$parent.scrollToTop()\" show-query-select=\"true\" query=\"alternative.query\"></vl-plot-group-list></div></div></div></div><div class=\"hflex full-width dev-panel\" ng-if=\"showDevPanel\"><div class=\"pane\" ng-show=\"consts.logToWebSql\"><div class=\"card\"><div>userid: {{Logger.userid}}</div><button ng-click=\"Logger.clear()\">Clear logs</button><br><button ng-click=\"Logger.export()\">Download logs</button></div></div><div class=\"pane config-pane\"><div class=\"card scroll-y abs-100\"><configuration-editor></configuration-editor></div></div><div class=\"pane vl-pane\"><cql-query-editor></cql-query-editor></div><div class=\"pane vg-pane\"><vg-spec-editor></vg-spec-editor></div></div><bookmark-list highlighted=\"Fields.highlighted\" post-select-action=\"scrollToTop\"></bookmark-list><dataset-modal></dataset-modal></div>");}]);
+$templateCache.put("components/vgSpecEditor/vgSpecEditor.html","<div class=\"card scroll-y abs-100 vflex no-right-margin\"><div><div class=\"right\"><a class=\"command\" ui-zeroclip=\"\" zeroclip-model=\"Spec.chart.vgSpec | compactJSON\">Copy</a><lyra-export></lyra-export></div><h3>Vega Specification</h3></div><textarea class=\"vgspec flex-grow-1\" json-input=\"\" disabled=\"disabled\" type=\"text\" ng-model=\"Spec.chart.vgSpec\"></textarea></div>");}]);
