@@ -8,6 +8,7 @@
     <meta name="author" content="HMaViz"/>
     <link rel="stylesheet" type="text/css" href="styles/index.css" media="screen"/>
     <title>HMaViz</title>
+    <script type="text/javascript" src="lib/jquery-1.9.0.min.js"></script>
 </head>
 
 <body>
@@ -23,12 +24,22 @@
     </div>
 </div>
 <center><video controls width="95%" height="800" frameborder="0" allowfullscreen>
-    <source src="https://media.githubusercontent.com/media/iDataVisualizationLab/HMaViz/master/video/HMaViz_video_final.mp4" type="video/mp4"> </video></center>
+    <source src="a/video/HMaViz_video_final.mp4" type="video/mp4"> </video></center>
 
 <div class="footer">
     <span class="right">&copy; Last revised: May 1, 2019</span>
     <div class="clearer"><span></span></div>
 </div>
 </div>
+<script type="text/javascript">
+    $(document).ready(function(){
+        var videoLoader = $('video source');
+        videoLoader.on('error',function(e){
+            console.log(e)
+            videoLoader.attr('src',"https://media.githubusercontent.com/media/iDataVisualizationLab/HMaViz/master/video/HMaViz_video_final.mp4");
+            $('video')[0].load();
+        })
+    })
+</script>
 </body>
 </html>
