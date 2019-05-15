@@ -34,7 +34,7 @@
       </usages-collector>
       <usages-collector id="statistics.file.types.edit">
         <counts>
-          <entry key="HTML" value="211" />
+          <entry key="HTML" value="226" />
           <entry key="JavaScript" value="1" />
         </counts>
       </usages-collector>
@@ -45,8 +45,8 @@
       <file pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/index.html">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="680">
-              <caret line="40" column="35" selection-start-line="40" selection-start-column="35" selection-end-line="40" selection-end-column="35" />
+            <state relative-caret-position="646">
+              <caret line="38" column="142" selection-start-line="38" selection-start-column="36" selection-end-line="38" selection-end-column="142" />
             </state>
           </provider>
         </entry>
@@ -242,16 +242,15 @@
       <workItem from="1557466173130" duration="2146000" />
       <workItem from="1557737590089" duration="2676000" />
       <workItem from="1557956178791" duration="295000" />
-      <workItem from="1557961529402" duration="946000" />
+      <workItem from="1557961529402" duration="2226000" />
     </task>
     <servers />
   </component>
   <component name="TimeTrackingManager">
-    <option name="totallyTimeSpent" value="16692000" />
+    <option name="totallyTimeSpent" value="17972000" />
   </component>
   <component name="ToolWindowManager">
     <frame x="-8" y="-8" width="2576" height="1056" extended-state="6" />
-    <editor active="true" />
     <layout>
       <window_info active="true" content_ui="combo" id="Project" order="0" visible="true" weight="0.2690779" />
       <window_info id="Structure" order="1" side_tool="true" weight="0.25" />
@@ -278,17 +277,6 @@
   </component>
   <component name="VcsContentAnnotationSettings">
     <option name="myLimit" value="2678400000" />
-  </component>
-  <component name="XDebuggerManager">
-    <breakpoint-manager>
-      <breakpoints>
-        <line-breakpoint enabled="true" type="javascript">
-          <url>file://$PROJECT_DIR$/index.html</url>
-          <line>38</line>
-          <option name="timeStamp" value="2" />
-        </line-breakpoint>
-      </breakpoints>
-    </breakpoint-manager>
   </component>
   <component name="editorHistoryManager">
     <entry file="file://$PROJECT_DIR$/video.html" />
@@ -345,8 +333,8 @@
     </entry>
     <entry file="file://$PROJECT_DIR$/index.html">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="680">
-          <caret line="40" column="35" selection-start-line="40" selection-start-column="35" selection-end-line="40" selection-end-column="35" />
+        <state relative-caret-position="646">
+          <caret line="38" column="142" selection-start-line="38" selection-start-column="36" selection-end-line="38" selection-end-column="142" />
         </state>
       </provider>
     </entry>
