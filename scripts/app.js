@@ -180,8 +180,12 @@ angular.module('pcagnosticsviz')
 
 'use strict';
 angular.module('pcagnosticsviz')
-    .directive('guideMenu', function(){
+    .directive('guideMenu',['Heap','$timeout', function(Heap,$timeout){
         //template: "<svg id =\'bi-plot\' width=\'100%\' class=\"\"></svg>",
+        let renderQueue = new Heap(function(a, b){
+                return a.priority - b.priority;
+            }),
+            rendering = false;
         return {
             templateUrl: 'components/guidemenu/guideMenu.html',
             restrict: 'E',
@@ -195,7 +199,7 @@ angular.module('pcagnosticsviz')
                 limitup: '=',
             },
             replace: true,
-            controller: ["$scope", "PCAplot", "Logger", "Dataset", function($scope, PCAplot, Logger,Dataset) {
+            controller: ["$scope", "PCAplot", "Logger", "Dataset", "Heap", function($scope, PCAplot, Logger,Dataset,Heap) {
                 var first = true;
 
                 //<editor-fold desc=“new area"
@@ -220,8 +224,9 @@ angular.module('pcagnosticsviz')
                 generalattr.g.attr('transform','translate('+generalattr.margin.left+','+generalattr.margin.top+')');
                 let detachedContainer = document.createElement('custom');
                 let dataContainer = d3v4.select(detachedContainer);
-                //</editor-fold>
 
+                //</editor-fold>
+                //<editor-fold desc="ui-watcher">
                 $scope.confict = false;
                 $scope.recommendLevel = 0;
                 $scope.byPass = false;
@@ -250,17 +255,7 @@ angular.module('pcagnosticsviz')
                         return str;
                     });
 
-                // $scope.typeChange =function (){
-                //     var tolog = {level_explore: $scope.prop.dim, abtraction: $scope.prop.mark, visual_feature: $scope.prop.type};
-                //     Logger.logInteraction(Logger.actions.FEATURE_SELECT, $scope.prop.type,{
-                //         val:{PS:tolog,spec:this.vlSpec,query:this.query},
-                //         time:new Date().getTime()});
-                //     first = true;
-                //     PCAplot.updateSpec($scope.prop);
-                //     $scope.limit = $scope.initialLimit || (($scope.prop.dim<1)?10:5);
-                //     $scope.limitup =  ($scope.prop.pos > 1 )?Math.min( $scope.limitup,($scope.prop.pos-2)): 0;
-                //     console.log("dim: " + $scope.prop.dim + "limit: " + $scope.limit);
-                // };
+
                 $scope.previewSlider = function (index){
                     // $scope.prop.pos =index+$scope.limitup;
                     console.log(index);
@@ -271,26 +266,7 @@ angular.module('pcagnosticsviz')
                         time:new Date().getTime()});
                     //console.log($scope.prop.pos);
                 };
-                // $scope.markChange =function (){
-                //     var tolog = {level_explore: $scope.prop.dim, abtraction: $scope.prop.mark, visual_feature: $scope.prop.type};
-                //     Logger.logInteraction(Logger.actions.TYPEPLOT_SELECT, $scope.prop.mark,{
-                //         val:{PS:tolog,spec:this.vlSpec,query:this.query},
-                //         time:new Date().getTime()});
-                //     first = true;
-                //     PCAplot.updateSpec($scope.prop);
-                //     $scope.limit = $scope.initialLimit || (($scope.prop.dim<1)?10:5);
-                //     $scope.limitup =  ($scope.prop.pos > 1 )?Math.min( $scope.limitup,($scope.prop.pos-2)): 0;
-                //     console.log("dim: " + $scope.prop.dim + "limit: " + $scope.limit);
-                // };
-
-                // var specWatcher = $scope.$watch('prop', function(spec) {
-                //     $scope.limit = first?($scope.initialLimit || (($scope.prop.dim<1)?10:5)):$scope.limit;
-                //     first = false;
-                //     // console.log("dim: " + $scope.prop.dim + "limit: " + $scope.limit);
-                //     $scope.limitup = Math.min($scope.limitup,($scope.prop.pos > $scope.limit)? ($scope.prop.pos-2) : 0);
-                //
-                //
-                // }, true);
+                var renderQueueNextPromise = null;
                 function size2type (l,d){
                     const combination = d*(d-1)/2*l;
                     if (combination<50000)
@@ -316,9 +292,9 @@ angular.module('pcagnosticsviz')
                 }
                 var generalWatcher = $scope.$watch('[prop.dim,prop.type,prop.mark,prop.previewcharts.length]', function(newValue, oldValue) {
                     first = false;
-                    if(newValue[0]!=oldValue[0])
+                    if(newValue[0]!== oldValue[0])
                         checkAvailability(newValue[0]);
-                    updateInterface($scope.prop.dim,$scope.prop);
+                    render($scope.prop);
 
                 }, true); //, true /* watch equality rather than reference */);
 
@@ -337,8 +313,13 @@ angular.module('pcagnosticsviz')
                 };
 
                 $scope.$on('$destroy', function() {
+                    console.log('guidemenu destroyed');
                     // Clean up watcher
                     // specWatcher();
+                    if (view) {
+                        destroyView();
+                    }
+                    scope.destroyed = true;
                     generalWatcher();
                     posWatcher();
                     generalattr.pc2 = undefined;
@@ -346,22 +327,67 @@ angular.module('pcagnosticsviz')
 
                 $scope.byPassHandle = function (){
                     $scope.byPass = !$scope.byPass;
-                    updateInterface($scope.prop.dim,$scope.prop);
+                    render($scope.prop);
                 };
-                function updateInterface (dim,data){
-                    switch (dim){
-                        case 0:
-                            generalplot_1D(data);
-                            break;
-                        case 1:
-                            generalplot_2D(data);
-                            break;
-                        case 2:
-                            generalplot_3D(data);
-                            break;
-                        default:
-                            generalplot_nD(data);
-                            break;
+
+                function renderQueueNext() {
+                    // render next item in the queue
+                    if (renderQueue.size() > 0) {
+                        var next = renderQueue.pop();
+                        next.parse();
+                    } else {
+                        // or say that no one is rendering
+                        rendering = false;
+                    }
+
+                }
+
+                function render(data) {
+                    if (!data) {
+                        if (view) {
+                            destroyView();
+                        }
+                        return;
+                    }
+                    function updateInterface (){
+                        if ($scope.destroyed || $scope.disabled) {
+                            console.log('cancel rendering', shorthand);
+                            renderQueueNext();
+                            return;
+                        }
+                        try {
+                            switch ($scope.prop.dim) {
+                                case 0:
+                                    generalplot_1D($scope.prop);
+                                    break;
+                                case 1:
+                                    generalplot_2D($scope.prop);
+                                    break;
+                                case 2:
+                                    generalplot_3D($scope.prop);
+                                    break;
+                                default:
+                                    generalplot_nD($scope.prop);
+                                    break;
+                            }
+                        }catch (e) {
+                            console.error(e, JSON.stringify($scope.prop));
+                        }finally {
+                            renderQueueNextPromise = $timeout(renderQueueNext, 1);
+                        }
+
+                    }
+
+                    if (!rendering) { // if no instance is being render -- rendering now
+                        rendering=true;
+                        updateInterface();
+
+                    } else {
+                        // otherwise queue it
+                        renderQueue.push({
+                            priority: $scope.priority || 0,
+                            parse: updateInterface
+                        });
                     }
                 }
 
@@ -373,11 +399,19 @@ angular.module('pcagnosticsviz')
                         case 1:
                             selectplot_2D(data);
                             break;
+                        case 2:
+                            selectplot_3D(data);
+                            break;
                         default:
                             selectplot_nD(data);
                             break;
                     }
                 }
+                function selectplot_3D(data){
+                    const dims = $scope.prop.mspec.fieldSet.map(d=>d.field);
+
+                }
+
                 function selectplot_nD(data){
                     const dims = $scope.prop.mspec.fieldSet.map(d=>d.field);
                     generalattr.pc2.svg.selectAll('.dimension')
@@ -882,7 +916,7 @@ angular.module('pcagnosticsviz')
 
 
                     cubesData = [];
-                    $scope.prop.previewcharts.forEach(d=>{
+                    $scope.prop.previewcharts.filter((d,i)=>i<100).forEach((d,i)=>{
                         let pos = d.fieldSet.map(f=> Dataset.schema.fieldSchema(f.field).index);
                         pos.sort((a,b)=>a-b);
                         d.id = pos.join('|');
@@ -891,10 +925,10 @@ angular.module('pcagnosticsviz')
                         // if (pos[0]>pos[1])
                             // PCAplot.transpose(d.order);
                         pos.sort((a,b)=>b.value-a.value);
-                        console.log(pos);
                         let h = generalattr.xScale.bandwidth();
                             var _cube = makeCube(pos[2].value,generalattr.yScale(pos[0].key), pos[1].value, h);
                         _cube.id = 'cube_' + d.id;
+                        _cube.order = i;
                         _cube.fields = pos;
                         _cube.height = h;
                         cubesData.push(_cube);
@@ -916,15 +950,15 @@ angular.module('pcagnosticsviz')
                         axis.forEach((a,ai)=>{
                             let tick ;
                             if (ai===0) { // x
-                                tick = [generalattr.xScale(t.text),generalattr.yScale(traits[1].text),generalattr.xScale.bandwidth()];
+                                tick = [generalattr.xScale(t.text)+generalattr.xScale.bandwidth()/2,generalattr.yScale(traits[1].text),generalattr.xScale.bandwidth()];
                                 tick.text = t.text;
                             }
                             if (ai===1) { // y
-                                tick = [0,generalattr.yScale(t.text),generalattr.xScale.bandwidth()];
+                                tick = [0,generalattr.yScale(t.text)-generalattr.xScale.bandwidth()/2,generalattr.xScale.bandwidth()];
                                 tick.text = i>1?t.text:'';
                             }
                             if (ai===2){ // z
-                                tick = [0,generalattr.yScale(traits[1].text),generalattr.xScale(t.text)+generalattr.xScale.bandwidth()];
+                                tick = [generalattr.xScale.bandwidth()/2,generalattr.yScale(traits[1].text),generalattr.xScale(t.text)+generalattr.xScale.bandwidth()/2];
                                 tick.text = i>0?t.text:'';
                             }
                             tick.index = t.value;
@@ -961,6 +995,10 @@ angular.module('pcagnosticsviz')
                             })
                             .merge(cubes)
                             .sort(cubes3D.sort)
+                            .on('click', function (d,i){
+                                generalattr.g.selectAll('.active').classed('active',false);
+                                d3v4.select(this).classed('active',true);
+                                $scope.previewSlider(d.order)})
                             .on('mouseover',function(d){
                                 generalattr.tip.show(d.fields,this);
                             }).on('mouseleave',d=>generalattr.tip.hide());
@@ -1014,7 +1052,7 @@ angular.module('pcagnosticsviz')
 
                         let axisn = axisn_new
                             .merge(axisG)
-                            .attr('text-anchor',d=>d.id!=='y'?'start':'end')
+                            .attr('text-anchor',d=>d.id!=='y'?'middle':'end')
                             .sort(Scale3d.sort);
                         /* ----------- y-Scale ----------- */
 
@@ -1036,7 +1074,7 @@ angular.module('pcagnosticsviz')
                             .append('text')
                             .attr('class', '_3d axisText')
                             .attr('dx', '.3em')
-                            .attr('dy', -generalattr.xScale.bandwidth()*scale/2)
+                            // .attr('dy', -generalattr.xScale.bandwidth()*scale/2)
                             .merge(axisText)
                             .transition().duration(tt)
                             .each(function(d){
@@ -1083,7 +1121,6 @@ angular.module('pcagnosticsviz')
                         mouseY = mouseY || 0;
                         beta   = (d3v4.event.x - mx + mouseX) * Math.PI / 230 ;
                         alpha  = (d3v4.event.y - my + mouseY) * Math.PI / 230  * (-1);
-                        console.log((beta + startAngle)  +' Y---X '+ (alpha - startAngle));
                         draw3Dcubes(cubes3D.rotateY(beta + startAngle).rotateX(alpha - startAngle)(cubesData)
                             , Scale3d.rotateY(beta + startAngle).rotateX(alpha - startAngle)(axis)
                             , floor3D.rotateY(beta + startAngle).rotateX(alpha - startAngle)([floor])
@@ -1122,12 +1159,13 @@ angular.module('pcagnosticsviz')
                         generalattr.force.stop();
                     }
                     // init
-                    generalattr.margin= {left:0, top: 0, bottom:20, right:20};
+                    generalattr.margin= {top: 50, left: 10, bottom: 12, right: 10};
                     generalattr.height = generalattr.w()+generalattr.margin.top+generalattr.margin.bottom;
                     generalattr.svg.attr('viewBox',[0,0,generalattr.width,generalattr.height]);
                     // generalattr.canvas.attr('width',generalattr.width)
                     //     .attr('height',generalattr.height);
                     generalattr.g = d3v4.select('.thum').select('.nDimentional');
+
 
                     //data
                     const r = PCAplot.orderVariables($scope.prop.type);
@@ -1136,15 +1174,25 @@ angular.module('pcagnosticsviz')
                     let dimObj ={}
                     traits.filter(t=>{let f = Dataset.schema.fieldSchema(t.text);
                     return !(f.primitiveType==="string"&&f.type==="nominal");}).forEach(t=>{
-                        dimObj[t.text] = {
+                        let dimFormat = {
                             title: t.text,
+                        };
+                        if (Dataset.schema.fieldSchema(t.text).type==='temporal') {
+                            //FIXME will fix in future
+                            dimFormat.tickFormat = function(d){
+                                return '';
+                            }
+                            // let scaleTime =
+                            // dimFormat.type = 'date';
+                            // dimFormat.yscale = d3.sc;
                         }
+                        dimObj[t.text] = dimFormat;
                     });
-                    // if (generalattr.pc2===undefined) {
+                    if (generalattr.pc2===undefined) {
                         generalattr.pc2 = generalattr.pc2||ParCoords()('.nDimentional');
                     generalattr.pc2
                         .mode("queue") // progressive rendering
-                        .margin({top: 50, left: 10, bottom: 12, right: 10})
+                        .margin(generalattr.margin)
                         .alpha(0.2)
                         .composite("darker")
                         .color('steelblue')
@@ -1159,17 +1207,52 @@ angular.module('pcagnosticsviz')
                         generalattr.pc2.svg.selectAll('.dimension').select('text.label').style('fill', 'black');
                         generalattr.pc2.svg.selectAll("text")
                             .style("font", "10px sans-serif");
-                    // }else{
-                    //     // generalattr.pc2.dimension(dimObj)
-                    //     //     .render()
-                    //     //     .updateAxes();
+                    }else{
+                        generalattr.pc2.dimension(dimObj)
+                            .render()
+                            .updateAxes();
+                    }
+                }
+                //TODO
+                function Time2format(field){
+                    const orderTIME = ['year','month','date'];
+                    const timeStats = Dataset.schema.fieldSchema(field).timestats;
+                    const highestorder = orderTIME.find(o=>timeStats[o].distinct>1);
+                    if (highestorder){
+                        return
+                    }else{
+
+                    }
+                }
+                //</editor-fold>
+
+                //<editor-fold desc="render">
+                function destroyView() {
+                    // if (view) {
+                    //     try {
+                    //         if (scope.tip)
+                    //             scope.tip.destroy();
+                    //     } catch(e) {
+                    //         if (scope.tip)
+                    //             scope.tip.remove();
+                    //     }
+                    //     if (tooltip)
+                    //         tooltip.destroy(); // destroy tooltip (promise and event listners)
+                    //     view.off('mouseover');
+                    //     view.off('mouseout');
+                    //     view.destroy();
+                    //     view = null;
+                    //
+                    //     var shorthand = getShorthand();
+                    //     if (consts.debug && $window.views) {
+                    //         delete $window.views[shorthand];
+                    //     }
                     // }
                 }
-
-
+                //</editor-fold>
             }]
         }
-    })
+    }])
     .directive('foRepeatDirective', function() {
         return function(scope, element, attrs) {
 
@@ -2390,6 +2473,8 @@ angular.module('pcagnosticsviz')
             //template: "<svg id =\'bi-plot\' width=\'100%\' class=\"\"></svg>",
         scope: {
             error: '<',
+            hideSvg: '=',
+            hideCanvas: '='
         },
         templateUrl: 'components/d3-biplot/bi-plot.html',
         controller: ["$scope", function ($scope) {
@@ -2433,6 +2518,137 @@ angular.module('pcagnosticsviz')
   });
 
 'use strict';
+
+angular.module('pcagnosticsviz')
+  // TODO: rename to Query once it's complete independent from Polestar
+  .service('Wildcards', ["ANY", "vl", "cql", "Dataset", "Alerts", function(ANY, vl, cql, Dataset, Alerts) {
+    var Wildcards = {
+      list: null,
+      addItem: addItem,
+      addField: addField,
+      removeItem: removeItem,
+      removeField: removeField
+    };
+
+    function reset() {
+      Wildcards.list = [
+        {
+          title: 'Categorical Fields',
+          field: '?',
+          type: {enum: [vl.type.NOMINAL, vl.type.ORDINAL]},
+          immutable: true
+        },
+        {
+          title: 'Temporal Fields',
+          field: '?',
+          type: vl.type.TEMPORAL,
+          immutable: true
+        },
+        {
+          title: 'Quantitative Fields',
+          field: '?',
+          type: vl.type.QUANTITATIVE,
+          immutable: true
+        }
+      ];
+    }
+    reset();
+
+    Dataset.onUpdate.push(reset);
+
+    function addItem(fieldDef) {
+      var wildcard = {
+        title: null,
+        field: {enum: []},
+        type: {enum: []}
+      };
+      addField(wildcard, fieldDef, true);
+
+      Wildcards.list.push(wildcard);
+
+      return wildcard;
+    }
+
+    function pushIfNotExist(array, item) {
+      if (array.indexOf(item) === -1) {
+        array.push(item);
+      }
+    }
+
+    function addField(wildcard, fieldDef, allowMixingType) {
+      // Augment type
+      // Since our wildcard are always created by addItem() method,
+      // it is always an enum spec.
+      if (allowMixingType) {
+        if (cql.enumSpec.isEnumSpec(fieldDef.type)) {
+          fieldDef.type.enum.forEach(function(type) {
+            pushIfNotExist(wildcard.type.enum, type);
+          });
+        } else {
+          pushIfNotExist(wildcard.type.enum, fieldDef.type);
+        }
+      } else {
+        if (cql.enumSpec.isEnumSpec(fieldDef.type)) {
+          var typeMissing = vl.util.some(fieldDef.type.enum, function(type) {
+            return !vl.util.contains(wildcard.type.enum, type);
+          });
+          if (typeMissing) {
+            Alerts.add('Cannot create a wildcard that mixes multiple types');
+            return;
+          }
+        } else {
+          if (!vl.util.contains(wildcard.type.enum, fieldDef.type)) {
+            Alerts.add('Cannot create a wildcard that mixes multiple types');
+            return;
+          }
+        }
+      }
+
+      // Augment aggregate(count) and field
+      if (cql.enumSpec.isEnumSpec(fieldDef.field)) {
+        if (fieldDef.field.enum) {
+          fieldDef.field.enum.forEach(function(field) {
+            pushIfNotExist(wildcard.field.enum, field);
+          });
+        } else { // Preset wildcard
+          Dataset.schema.fieldSchemas.forEach(function(fieldSchema) {
+            if (wildcard.type.enum ?
+                  vl.util.contains(wildcard.type.enum, fieldSchema.type) :
+                  fieldSchema.type === wildcard.type
+               ) {
+              pushIfNotExist(wildcard.field.enum, fieldSchema.field);
+            }
+          });
+        }
+      } else if (fieldDef.aggregate === 'count') {
+        wildcard.aggregate = {enum: [undefined, 'count']};
+        pushIfNotExist(wildcard.field.enum, '*');
+      } else { // general fieldDef
+        pushIfNotExist(wildcard.field.enum, fieldDef.field);
+      }
+
+      return wildcard; // support chaining
+    }
+
+    function removeItem(wildcard) {
+      var index = Wildcards.list.indexOf(wildcard);
+      Wildcards.list.splice(index, 1);
+    }
+
+    function removeField(wildcard, index) {
+      var removedField = wildcard.field.enum.splice(index, 1);
+      if (removedField === '*') {
+        delete wildcard.aggregate;
+      }
+      if (wildcard.field.enum.length === 0) {
+        removeItem(wildcard);
+      }
+    }
+
+    return Wildcards;
+  }]);
+
+'use strict';
 angular.module('pcagnosticsviz')
     .factory("scagworker",['$q',function($q){
 
@@ -2464,7 +2680,7 @@ angular.module('pcagnosticsviz')
 'use strict';
 
 angular.module('pcagnosticsviz')
-    .factory('PCAplot', ["$mdToast", "ANY", "Dataset", "_", "vg", "vl", "cql", "ZSchema", "Logger", "consts", "FilterManager", "Pills", "NotifyingService", "Alternatives", "Alerts", "Chart", "Config", "Schema", "util", "GuidePill", "Webworker", function($mdToast,ANY,Dataset,_, vg, vl, cql, ZSchema,Logger, consts,FilterManager ,Pills,NotifyingService,Alternatives,Alerts,Chart,Config,Schema,util,GuidePill, Webworker) {
+    .factory('PCAplot', ["$timeout", "$mdToast", "ANY", "Dataset", "_", "vg", "vl", "cql", "ZSchema", "Logger", "consts", "FilterManager", "Pills", "NotifyingService", "Alternatives", "Alerts", "Chart", "Config", "Schema", "util", "Webworker", function($timeout,$mdToast,ANY,Dataset,_, vg, vl, cql, ZSchema,Logger, consts,FilterManager ,Pills,NotifyingService,Alternatives,Alerts,Chart,Config,Schema,util, Webworker) {
         var keys =  _.keys(Schema.schema.definitions.Encoding.properties).concat([ANY+0]);
         var colordot = '#4682b4';
         var states = {IDLE:0,GENERATE_GUIDE:1,GENERATE_ALTERNATIVE:2,FREE:3, UPDATEPOSITION:4};
@@ -2488,6 +2704,7 @@ angular.module('pcagnosticsviz')
         }
 
         var PCAplot = {
+            view:{},
             data:[],
             dataencde: null,
             alternatives: [],
@@ -2542,20 +2759,16 @@ angular.module('pcagnosticsviz')
             }
             return d[f];
         }
-        //PCAplot.updateplot = function (data){};
         PCAplot.plot =function(dataor,dimension) {
             if (!Object.keys(Config.data).length){return PCAplot;}
             if (!PCAplot.firstrun && (Dataset.currentDataset[Object.keys(Config.data)[0]]===Config.data[Object.keys(Config.data)[0]])) {return PCAplot;}
-            //console.log("PLOT!!!!");
             PCAplot.firstrun = false;
-            // d3.select('#bi-plot').selectAll('g').remove();
 
             // Biplot.data;
-            //var data = Dataset.data);
             if (typeof dataor !=='undefined' ) {
                 PCAplot.data[0] = Dataset.schema.fieldSchemas;
                 PCAplot.data[1] =PCAplot.dataref;
-                var biplotselect = $('.biplot');
+                var biplotselect = $('svg.biplot');
                 var data = _.cloneDeep(dataor);
                 var margin = {top: 20, right: 20, bottom: 20, left: 20};
                 var width = biplotselect.width() - margin.left - margin.right;
@@ -2577,9 +2790,8 @@ angular.module('pcagnosticsviz')
 
                 var svg_main = d3.select("#bi-plot")
                     .attr("width", width + margin.left + margin.right)
-                    .attr("height", height + margin.top + margin.bottom)
-                ;
-                var menu = svg_main.select('#bi-plot');
+                    .attr("height", height + margin.top + margin.bottom);
+
                 var svg = svg_main.select("#bi-plot-g")
                     .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
                 // svg_main
@@ -2597,721 +2809,735 @@ angular.module('pcagnosticsviz')
                     matrix = [],
                     outlier = [];
                 var dataref = null;
-                if (dimension === 0) {
+                if (dimension<2) {
+                    if (dimension === 0) {
 
-                    brand_names = Dataset.schema._fieldSchemas.filter(d=>(d.type!=="temporal"&& d.primitiveType!=="string")).map(d=>d.field);
-                    matrix = data2Num(data,brand_names);
+                        brand_names = Dataset.schema._fieldSchemas.filter(d => (d.type !== "temporal" && d.primitiveType !== "string")).map(d => d.field);
+                        matrix = data2Num(data, brand_names);
 
-                    outlier = Dataset.schema._fieldSchemas.map(function (b, i) {
-                       const  d= b.field
+                        outlier = Dataset.schema._fieldSchemas.map(function (b, i) {
+                            const d = b.field
 
-                        if ((Dataset.schema.fieldSchema(d).type !== "quantitative") || (Dataset.schema.fieldSchema(d).primitiveType === "string")) {
-                            Dataset.schema.fieldSchema(d).stats.outlier = 0;
-                            Dataset.schema.fieldSchema(d).stats.variance = 0;
-                            Dataset.schema.fieldSchema(d).stats.modeskew = 0;
-                            Dataset.schema.fieldSchema(d).stats.multimodality = 0;
-                        }
-                        return Dataset.schema.fieldSchema(d).stats.outlier;
-                    });
-                    var outlier_scale = d3v4.scaleLinear().domain(d3.extent(outlier)).range([0,1]);
-                    outlier = outlier.map(o=>outlier_scale(o));
-                }
-                else {
-                    var newdata = [];
-                    data.forEach(function (d) {
+                            if ((Dataset.schema.fieldSchema(d).type !== "quantitative") || (Dataset.schema.fieldSchema(d).primitiveType === "string")) {
+                                Dataset.schema.fieldSchema(d).stats.outlier = 0;
+                                Dataset.schema.fieldSchema(d).stats.variance = 0;
+                                Dataset.schema.fieldSchema(d).stats.modeskew = 0;
+                                Dataset.schema.fieldSchema(d).stats.multimodality = 0;
+                            }
+                            return Dataset.schema.fieldSchema(d).stats.outlier;
+                        });
+                        var outlier_scale = d3v4.scaleLinear().domain(d3.extent(outlier)).range([0, 1]);
+                        outlier = outlier.map(o => outlier_scale(o));
+                    }
+                    else {
+                        var newdata = [];
+                        data.forEach(function (d) {
 
                             if (d.scag.invalid !== 1) {
                                 idlabel.push([d.fieldDefs[0].field, d.fieldDefs[1].field]);
                                 newdata.push(d.scag);
                             }
-                    });
-                    data = newdata
-                    .filter(function (d) {
-                        return !d.invalid // FIX ME
-                    }); // for overview 2D
-                    // idlabel = Object.keys(data);
-                    //brand_names = Object.keys(data[idlabel[0]]);
-                    brand_names = Object.keys(data[0]).filter(function (d) {
-                        return d !== "label";
-                    });
-                    // data = d3.values(data);
-                    matrix = data.map(function (d) {
-                        return brand_names.map(b=>d[b])
-                    });
-                    //console.log(data);
-                    // if (brand_names < 9) {
-                    //     data.forEach(function (d, i) {
-                    //         d.label = idlabel[i];
-                    //         d.pc1 = 0;
-                    //         d.pc2 = 0;
-                    //     });
-                    //     dataref = _.cloneDeep(data);
-                    //     var brands = brand_names
-                    //         .map(function (key, i) {
-                    //             return {brand: key, pc1: 0, pc2: 0}
-                    //         });
-                    //     PCAplot.estimate(brands, dimension, dataref);
-                    // }
+                        });
+                        data = newdata
+                            .filter(function (d) {
+                                return !d.invalid // FIX ME
+                            }); // for overview 2D
+                        // idlabel = Object.keys(data);
+                        //brand_names = Object.keys(data[idlabel[0]]);
+                        brand_names = Object.keys(data[0]).filter(function (d) {
+                            return d !== "label";
+                        });
+                        // data = d3.values(data);
+                        matrix = data.map(function (d) {
+                            return brand_names.map(b => d[b])
+                        });
+                        //console.log(data);
+                        // if (brand_names < 9) {
+                        //     data.forEach(function (d, i) {
+                        //         d.label = idlabel[i];
+                        //         d.pc1 = 0;
+                        //         d.pc2 = 0;
+                        //     });
+                        //     dataref = _.cloneDeep(data);
+                        //     var brands = brand_names
+                        //         .map(function (key, i) {
+                        //             return {brand: key, pc1: 0, pc2: 0}
+                        //         });
+                        //     PCAplot.estimate(brands, dimension, dataref);
+                        // }
 
-                }
-                try{
-                var pca = new PCA();
-                // console.log(brand_names);
-                matrix = pca.scale(matrix, true, true);
-
-                var pc = pca.pca(matrix, 2);
-
-                var A = pc[0];  // this is the U matrix from SVD
-                var B = pc[1];  // this is the dV matrix from SVD
-                var chosenPC = pc[2];   // this is the most value of PCA
-                data.forEach(function (d, i) {
-                    d.pc1 = A[i][chosenPC[0]];
-                    d.pc2 = A[i][chosenPC[1]];
-                });
-                if (dimension === 1) {
-                    data.forEach(function (d, i) {
-                        d.label = idlabel[i]
-                    });
-                    dataref = data;
-                    data = brand_names.map(function (d) {
-                        var top = data.sort(function (a, b) {
-                            return a[d] < b[d] ? 1 : -1;
-                        })[0];
-                        if (top[d] > 0.65) {
-                            top.feature = d;
-                            return top;
-                        }
-                    }).filter(function (d) {
-                        return d !== undefined;
-                    });
-                }
-                var maxxy = [-Infinity, -Infinity];
-                var minxy = [Infinity, Infinity];
-                //A.forEach(function(d){maxxy=Math.max(maxxy,Math.abs(d[0]),Math.abs(d[1]));});
-                maxxy = maxxy.map(function (d, i) {
-                    return d3.max(data.map(function (e) {
-                        return e['pc' + (i + 1)];
-                    }));
-                });
-                minxy = minxy.map(function (d, i) {
-                    return d3.min(data.map(function (e) {
-                        return e['pc' + (i + 1)];
-                    }));
-                });
-                var maxxyall = [0, 0];
-                maxxyall = maxxyall.map(function (d, i) {
-                    return Math.max(Math.abs(minxy[i]), Math.abs(maxxy[i]));
-                });
-                // var maxxy = d3.max(maxxyall);
-                //     maxxyall[0] = maxxy;
-                //     maxxyall[1] = maxxy;
-                // x.domain([-maxxyall]).nice();
-                // y.domain([minxy[1],maxxy[1]]).nice();
-                x.domain([-maxxyall[0], maxxyall[0]]).nice();
-                y.domain([-maxxyall[1], maxxyall[1]]).nice();
-                var scale_axis = 0;
-                B.forEach(function (i) {
-                    scale_axis = Math.max(scale_axis, Math.sqrt(i[0] * i[0] + i[1] * i[1]))
-                });
-                var scale_axisx = maxxyall[0] / scale_axis;
-                var scale_axisy = maxxyall[1] / scale_axis;
-                var brands = brand_names
-                    .map(function (key, i) {
-                        return {
-                            brand: key,
-                            pc1: B[i][chosenPC[0]] * scale_axisx,
-                            pc2: B[i][chosenPC[1]] * scale_axisy,
-                            load_pc1: B[i][chosenPC[0]],
-                            load_pc2: B[i][chosenPC[1]],
-                        }
-                    });
-                // console.log(brands);
-
-
-                data.forEach(function (d, i) {
-                    var xy = rotate(d.pc1, d.pc2, angle);
-                    d.pc1 = xy.x;
-                    d.pc2 = xy.y;
-                    d.vector = matrix[i];
-                });
-
-                brands.forEach(function (d, i) {
-                    var xy = rotate(d.pc1, d.pc2, angle);
-                    d.pc1 = xy.x;
-                    d.pc2 = xy.y;
-
-                    if (dimension === 0) {
-                        d.outlier = outlier[i];
-                        d.skew = Dataset.schema.fieldSchema(d.brand).stats.modeskew;
-                        d.variance = Dataset.schema.fieldSchema(d.brand).stats.variance;
                     }
-                });
-                //update to calculate
-                PCAplot.estimate(brands, dimension, dataref);
-                // draw
-                var onMouseOverAttribute = function (a, j) {
-                    brands.forEach(function (b, idx) {
-                        var A = {x: 0, y: 0};
-                        var B = {x: b.pc1, y: b.pc2};
-                        var C = {x: a.pc1, y: a.pc2};
-                        //var C = { x: a.vector[idx],  y: a.vector[idx] };
+                    try {
+                        var pca = new PCA();
+                        // console.log(brand_names);
+                        matrix = pca.scale(matrix, true, true);
 
-                        b.D = getSpPoint(A, B, C);
-                    });
+                        var pc = pca.pca(matrix, 2);
 
-                    svg.selectAll('.tracer')
-                        .data(brands)
-                        .enter()
-                        .append('line')
-                        .attr('class', 'tracer tips')
-                        .attr('x1', function (b, i) {
-                            return x(a.pc1);
-                            return x1;
-                        })
-                        .attr('y1', function (b, i) {
-                            return y(a.pc2);
-                            return y1;
-                        })
-                        .attr('x2', function (b, i) {
-                            return x(b.D.x);
-                            return x2;
-                        })
-                        .attr('y2', function (b, i) {
-                            return y(b.D.y);
-                            return y2;
-                        })
-                        .style("stroke", function (d) {
-                            return "#ff6f2b"
+                        var A = pc[0];  // this is the U matrix from SVD
+                        var B = pc[1];  // this is the dV matrix from SVD
+                        var chosenPC = pc[2];   // this is the most value of PCA
+                        data.forEach(function (d, i) {
+                            d.pc1 = A[i][chosenPC[0]];
+                            d.pc2 = A[i][chosenPC[1]];
+                        });
+                        if (dimension === 1) {
+                            data.forEach(function (d, i) {
+                                d.label = idlabel[i]
+                            });
+                            dataref = data;
+                            data = brand_names.map(function (d) {
+                                var top = data.sort(function (a, b) {
+                                    return a[d] < b[d] ? 1 : -1;
+                                })[0];
+                                if (top[d] > 0.65) {
+                                    top.feature = d;
+                                    return top;
+                                }
+                            }).filter(function (d) {
+                                return d !== undefined;
+                            });
+                        }
+                        var maxxy = [-Infinity, -Infinity];
+                        var minxy = [Infinity, Infinity];
+                        //A.forEach(function(d){maxxy=Math.max(maxxy,Math.abs(d[0]),Math.abs(d[1]));});
+                        maxxy = maxxy.map(function (d, i) {
+                            return d3.max(data.map(function (e) {
+                                return e['pc' + (i + 1)];
+                            }));
+                        });
+                        minxy = minxy.map(function (d, i) {
+                            return d3.min(data.map(function (e) {
+                                return e['pc' + (i + 1)];
+                            }));
+                        });
+                        var maxxyall = [0, 0];
+                        maxxyall = maxxyall.map(function (d, i) {
+                            return Math.max(Math.abs(minxy[i]), Math.abs(maxxy[i]));
+                        });
+                        // var maxxy = d3.max(maxxyall);
+                        //     maxxyall[0] = maxxy;
+                        //     maxxyall[1] = maxxy;
+                        // x.domain([-maxxyall]).nice();
+                        // y.domain([minxy[1],maxxy[1]]).nice();
+                        x.domain([-maxxyall[0], maxxyall[0]]).nice();
+                        y.domain([-maxxyall[1], maxxyall[1]]).nice();
+                        var scale_axis = 0;
+                        B.forEach(function (i) {
+                            scale_axis = Math.max(scale_axis, Math.sqrt(i[0] * i[0] + i[1] * i[1]))
+                        });
+                        var scale_axisx = maxxyall[0] / scale_axis;
+                        var scale_axisy = maxxyall[1] / scale_axis;
+                        var brands = brand_names
+                            .map(function (key, i) {
+                                return {
+                                    brand: key,
+                                    pc1: B[i][chosenPC[0]] * scale_axisx,
+                                    pc2: B[i][chosenPC[1]] * scale_axisy,
+                                    load_pc1: B[i][chosenPC[0]],
+                                    load_pc2: B[i][chosenPC[1]],
+                                }
+                            });
+                        // console.log(brands);
+
+
+                        data.forEach(function (d, i) {
+                            var xy = rotate(d.pc1, d.pc2, angle);
+                            d.pc1 = xy.x;
+                            d.pc2 = xy.y;
+                            d.vector = matrix[i];
                         });
 
-                    delete a.D;
-                    var ca = _.cloneDeep(a);
-                    delete ca.pc1;
-                    delete ca.pc2;
-                    delete ca.vector;
-                    var tipText = d3.entries(ca);
-                    // console.log(a);
-                    tip.show(tipText, "");
-                };
+                        brands.forEach(function (d, i) {
+                            var xy = rotate(d.pc1, d.pc2, angle);
+                            d.pc1 = xy.x;
+                            d.pc2 = xy.y;
+
+                            if (dimension === 0) {
+                                d.outlier = outlier[i];
+                                d.skew = Dataset.schema.fieldSchema(d.brand).stats.modeskew;
+                                d.variance = Dataset.schema.fieldSchema(d.brand).stats.variance;
+                            }
+                        });
+                        //update to calculate
+                        PCAplot.estimate(brands, dimension, dataref);
+                        // draw
+                        var onMouseOverAttribute = function (a, j) {
+                            brands.forEach(function (b, idx) {
+                                var A = {x: 0, y: 0};
+                                var B = {x: b.pc1, y: b.pc2};
+                                var C = {x: a.pc1, y: a.pc2};
+                                //var C = { x: a.vector[idx],  y: a.vector[idx] };
+
+                                b.D = getSpPoint(A, B, C);
+                            });
+
+                            svg.selectAll('.tracer')
+                                .data(brands)
+                                .enter()
+                                .append('line')
+                                .attr('class', 'tracer tips')
+                                .attr('x1', function (b, i) {
+                                    return x(a.pc1);
+                                    return x1;
+                                })
+                                .attr('y1', function (b, i) {
+                                    return y(a.pc2);
+                                    return y1;
+                                })
+                                .attr('x2', function (b, i) {
+                                    return x(b.D.x);
+                                    return x2;
+                                })
+                                .attr('y2', function (b, i) {
+                                    return y(b.D.y);
+                                    return y2;
+                                })
+                                .style("stroke", function (d) {
+                                    return "#ff6f2b"
+                                });
+
+                            delete a.D;
+                            var ca = _.cloneDeep(a);
+                            delete ca.pc1;
+                            delete ca.pc2;
+                            delete ca.vector;
+                            var tipText = d3.entries(ca);
+                            // console.log(a);
+                            tip.show(tipText, "");
+                        };
 
 // draw line from the brand axis a perpendicular to each attribute b
-                var legendtop = svg_main.selectAll('.legendtop').data([''],d=>d);
-                    legendtop
-                    .enter().append('text')
-                    .text(function (d) {
-                        return d
-                    }).attr('class','legendtop')
-                    .attr('text-anchor', 'end')
-                    .attr('y', height + margin.bottom / 2)
-                    .attr('x', width);
-                    legendtop = svg_main.selectAll('.legendtop');
-                var onMouseOverBrand = function (b, j) {
+                        var legendtop = svg_main.selectAll('.legendtop').data([''], d => d);
+                        legendtop
+                            .enter().append('text')
+                            .text(function (d) {
+                                return d
+                            }).attr('class', 'legendtop')
+                            .attr('text-anchor', 'end')
+                            .attr('y', height + margin.bottom / 2)
+                            .attr('x', width);
+                        legendtop = svg_main.selectAll('.legendtop');
+                        var onMouseOverBrand = function (b, j) {
 
-                    data.forEach(function (a, idx) {
-                        var A = {x: 0, y: 0};
-                        var B = {x: b.pc1, y: b.pc2};
-                        var C = {x: a.pc1, y: a.pc2};
-                        // var C = { x: a.vector[j],  y: a.vector[j] };
+                            data.forEach(function (a, idx) {
+                                var A = {x: 0, y: 0};
+                                var B = {x: b.pc1, y: b.pc2};
+                                var C = {x: a.pc1, y: a.pc2};
+                                // var C = { x: a.vector[j],  y: a.vector[j] };
 
-                        a.D = getSpPoint(A, B, C);
-                    });
-
-                    var tracer = svg.selectAll('.tracer')
-                        .data(data)
-                        .enter();
-                    tracer
-                        .append('line')
-                        .attr('class', 'tracer tips')
-                        .attr('x1', function (a, i) {
-                            return x(a.D.x);
-                        })
-                        .attr('y1', function (a, i) {
-                            return y(a.D.y);
-                        })
-                        .attr('x2', function (a, i) {
-                            return x(a.pc1);
-                        })
-                        .attr('y2', function (a, i) {
-                            return y(a.pc2);
-                        })
-                        .style("stroke", function (d) {
-                            return "#aaa"
-                        });
-
-                    tracer
-                        .append('circle')
-                        .attr('class', 'tracer-c tips')
-                        .attr('cx', function (a, i) {
-                            return x(a.D.x);
-                        })
-                        .attr('cy', function (a, i) {
-                            return y(a.D.y);
-                        })
-                        .attr('r', 5)
-                        .style("fill", function (d) {
-                            return "#ff6f2b"
-                        })
-                        .style("fill-opacity", 0.1);
-                    console.log('Mouse over brand');
-                    console.log(b.brand);
-                    legendtop.data([b.brand]).text(function (d) {
-                        return d;
-                    });
-                    /*var tipText = data.map(function(d) {
-                        return {key: d[brand_names[0]], value: d[b['brand']] }
-                    });*/
-
-                    // call tip
-                    /*var tipText ="";
-                    tip.show(tipText, b.brand);*/
-
-                    //add tip to head
-                };
-
-                var onMouseLeave = function (b, j) {
-                    svg.selectAll('.tracer').remove();
-                    svg.selectAll('.tracer-c').remove();
-                    tip.hide();
-                    legendtop.data(['']).text(function (d) {
-                        return d;
-                    });
-                };
-                var onClickInstance =function (d) {
-                        // TODO use query
-                        const channelID = Object.keys(vlSchema.definitions.UnitEncoding.properties).slice(0,d.label.length);
-                        channelID.forEach((c,i)=> Pills.set(c,Dataset.schema.fieldSchema(d.label[i]),true));
-                    NotifyingService.notify();
-                    };
-                if (dimension === 0) {
-                    g_point.selectAll(".subgraph").remove();
-                    var point = g_point.selectAll(".dot")
-                        .data(data)
-                        .attr("cx", function (d) {
-                            return x(d.pc1);
-                        })
-                        .attr("cy", function (d) {
-                            return y(d.pc2);
-                        })
-                        .style("fill", colordot)
-                        .style("stroke", "black")
-                        .style("stroke-width", 0.2)
-                        .style("stroke-opacity", 0.5)
-                        .style("fill-opacity", 0.6)
-                        .on('mouseover', onMouseOverAttribute)
-                        .on('mouseleave', onMouseLeave);
-                    point.exit().remove();
-                    point
-                        .enter().append("circle")
-                        .attr("class", "dot")
-                        .attr("r", rdot)
-                        .attr("cx", function (d) {
-                            return x(d.pc1);
-                        })
-                        .attr("cy", function (d) {
-                            return y(d.pc2);
-                        })
-                        .style("fill", colordot)
-                        .style("stroke", "black")
-                        .style("stroke-width", 0.5)
-                        .style("fill-opacity", 0.6)
-                        .on('mouseover', onMouseOverAttribute)
-                        .on('mouseleave', onMouseLeave);
-                } else {
-                    g_point.selectAll(".dot").remove();
-                    var subplot = g_point.selectAll(".subgraph")
-                        .data(data,d=>d.label)
-                        .attr("class", "subgraph")
-                        .attr('transform', function (d) {
-                            return "translate(" + (x(d.pc1) - (subgSize.w + submarign.left + submarign.right) / 2) + "," + (y(d.pc2) - (subgSize.h + submarign.top + submarign.bottom) / 2) + ")"
-                        });
-                        // .on('mouseover', onMouseOverAttribute)
-                        // .on('mouseleave', onMouseLeave);
-                    subplot.exit().remove();
-                    var subinside = subplot
-                        .enter().append("g")
-                        .attr("class", "subgraph")
-                        .attr('transform', function (d) {
-                            return "translate(" + (x(d.pc1) - (subgSize.w + submarign.left + submarign.right) / 2) + "," + (y(d.pc2) - (subgSize.h + submarign.top + submarign.bottom) / 2) + ")"
-                        })
-                        .on('click',onClickInstance)
-                        .on('mouseover', onMouseOverAttribute)
-                        .on('mouseleave', onMouseLeave);
-                    subinside.append("rect")
-                        .attr("class", "backgroundSub")
-                        .attr("width", subgSize.w + submarign.left + submarign.right)
-                        .attr("height", subgSize.h + submarign.top + submarign.bottom)
-                        .attr("x", 0)
-                        .attr("y", 0);
-                    var subpoint = subplot.selectAll(".point")
-                        .data(function (d) {
-                            //var datapoint = Dataset.data.map(function(it){return [it[PCAplot.mainfield],it[d.label]]});
-                            var datapoint = Dataset.data.map(function (it) {
-                                return [it[d.label[0]], it[d.label[1]]]
+                                a.D = getSpPoint(A, B, C);
                             });
-                            var datax = datapoint.map(function (d) {
-                                return d[0]
+
+                            var tracer = svg.selectAll('.tracer')
+                                .data(data)
+                                .enter();
+                            tracer
+                                .append('line')
+                                .attr('class', 'tracer tips')
+                                .attr('x1', function (a, i) {
+                                    return x(a.D.x);
+                                })
+                                .attr('y1', function (a, i) {
+                                    return y(a.D.y);
+                                })
+                                .attr('x2', function (a, i) {
+                                    return x(a.pc1);
+                                })
+                                .attr('y2', function (a, i) {
+                                    return y(a.pc2);
+                                })
+                                .style("stroke", function (d) {
+                                    return "#aaa"
+                                });
+
+                            tracer
+                                .append('circle')
+                                .attr('class', 'tracer-c tips')
+                                .attr('cx', function (a, i) {
+                                    return x(a.D.x);
+                                })
+                                .attr('cy', function (a, i) {
+                                    return y(a.D.y);
+                                })
+                                .attr('r', 5)
+                                .style("fill", function (d) {
+                                    return "#ff6f2b"
+                                })
+                                .style("fill-opacity", 0.1);
+                            console.log('Mouse over brand');
+                            console.log(b.brand);
+                            legendtop.data([b.brand]).text(function (d) {
+                                return d;
                             });
-                            var datay = datapoint.map(function (d) {
-                                return d[1]
-                            });
-                            var maxx = d3.max(datax);
-                            var minx = d3.min(datax);
-                            var maxy = d3.max(datay);
-                            var miny = d3.min(datay);
-                            datapoint.forEach(function (d) {
-                                d[0] = (d[0] - minx) / (maxx - minx);
-                                d[1] = (d[1] - miny) / (maxy - miny);
-                            });
-                            return datapoint;
-                        })
-                        .attr("cx", function (d) {
-                            return subx(d[0]);
-                        })
-                        .attr("cy", function (d) {
-                            return suby(d[1]);
-                        });
-                    subpoint.exit().remove();
-                    subpoint.enter()
-                        .append("circle")
-                        .attr("class", "point")
-                        .attr("r", 1)
-                        .attr("cx", function (d) {
-                            return subx(d[0]);
-                        })
-                        .attr("cy", function (d) {
-                            return suby(d[1]);
-                        })
-                        .style("fill", function (d) {
-                            return '#4682b4';
-                        })
-                        .style('opacity', 0.8);
-                }
+                            /*var tipText = data.map(function(d) {
+                                return {key: d[brand_names[0]], value: d[b['brand']] }
+                            });*/
 
-                var circlebrand = g_axis.selectAll(".circle_brand")
-                    .data(brands)
-                    .attr("x", function (d) {
-                        return x(d.pc1) - 2.5;
-                    })
-                    .attr("y", function (d) {
-                        return y(d.pc2) - 2.5;
-                    })
-                    .style("fill", function (d) {
-                        return color(d['brand']);
-                    }).on('mouseover', onMouseOverBrand)
-                    .on('mouseleave', onMouseLeave);;
-                circlebrand.exit().remove();
-                circlebrand
-                    .enter().append("rect")
-                    .attr("class", "circle_brand")
-                    .attr("width", 5)
-                    .attr('height', 5)
-                    .attr("x", function (d) {
-                        return x(d.pc1) - 2.5;
-                    })
-                    .attr("y", function (d) {
-                        return y(d.pc2) - 2.5;
-                    })
-                    .style("fill", function (d) {
-                        return color(d['brand']);
-                    }).on('mouseover', onMouseOverBrand)
-                    .on('mouseleave', onMouseLeave);
+                            // call tip
+                            /*var tipText ="";
+                            tip.show(tipText, b.brand);*/
 
-
-                var temp_drag;
-                var current_field;
-
-                var dragHandler = d3.behavior.drag()
-                    .on("dragstart", function (d) {
-
-                        current_field = Dataset.schema.fieldSchema(d.brand);
-                        var proIwant = d3.selectAll($("[id='" + d.brand + "']")).select('div')
-                        //.attr ('class','schema-list-item ng-pristine ng-untouched ng-valid ui-droppable ui-droppable-disabled ng-empty ui-droppable-active drop-active');
-                        var pill = {
-                            field: current_field.field,
-                            title: current_field.title,
-                            type: current_field.type,
-                            aggregate: current_field.aggregate
+                            //add tip to head
                         };
-                        Pills.dragStart(pill, null);
-                        // NotifyingService.notify();
-                        var ori = proIwant.select('span').html();
-                        //console.log(ori);
-                        /* temp_drag = proIwant.select('span').select(function() {
-                             return this.parentNode.insertBefore(this.cloneNode(true), this.nextSibling);
-                         });*/
-                        temp_drag = d3.select('bi-plot').append('span').html(ori);
-                        temp_drag.attr("class", 'pill draggable cafull-width no-right-margin field-info ng-pristine ng-untouched ng-valid ng-isolate-scope ui-draggable ui-draggable-handle ng-empty ui-draggable-dragging')
-                            .style("position", "absolute")
-                            .style("z-index", '9999')
-                            .style("left", function () {
-                                return ((d3.event.x || d3.event.pageX)) + "px"
-                            })
-                            .style("top", function () {
-                                var con = (d3.event.y || d3.event.pageY) + 100;
-                                return con + "px"
+
+                        var onMouseLeave = function (b, j) {
+                            svg.selectAll('.tracer').remove();
+                            svg.selectAll('.tracer-c').remove();
+                            tip.hide();
+                            legendtop.data(['']).text(function (d) {
+                                return d;
                             });
-                        d3.selectAll('.field-drop')
-                            .attr("class", "field-drop ng-pristine ng-untouched ng-valid ui-droppable ng-not-empty ui-dropable-active drop-active ");
-                        NotifyingService.notify();
-                        // NotifyingService.notify();
-                        //console.log($(proIwant[0]));
-                        //$(proIwant[0]).trigger("mousedown");
-                        //$(proIwant[0]).trigger('DOMContentLoaded');
-                        //$(proIwant[0]).trigger('blur');
-                    })
-                    .on("drag", function (d) {
-                        temp_drag
-                            .style("left", function () {
-                                return d3.event.x + "px"
+                        };
+                        var onClickInstance = function (d) {
+                            // TODO use query
+                            const channelID = Object.keys(vlSchema.definitions.UnitEncoding.properties).slice(0, d.label.length);
+                            channelID.forEach((c, i) => Pills.set(c, Dataset.schema.fieldSchema(d.label[i]), true));
+                            NotifyingService.notify();
+                        };
+                        if (dimension === 0) {
+                            g_point.selectAll(".subgraph").remove();
+                            var point = g_point.selectAll(".dot")
+                                .data(data)
+                                .attr("cx", function (d) {
+                                    return x(d.pc1);
+                                })
+                                .attr("cy", function (d) {
+                                    return y(d.pc2);
+                                })
+                                .style("fill", colordot)
+                                .style("stroke", "black")
+                                .style("stroke-width", 0.2)
+                                .style("stroke-opacity", 0.5)
+                                .style("fill-opacity", 0.6)
+                                .on('mouseover', onMouseOverAttribute)
+                                .on('mouseleave', onMouseLeave);
+                            point.exit().remove();
+                            point
+                                .enter().append("circle")
+                                .attr("class", "dot")
+                                .attr("r", rdot)
+                                .attr("cx", function (d) {
+                                    return x(d.pc1);
+                                })
+                                .attr("cy", function (d) {
+                                    return y(d.pc2);
+                                })
+                                .style("fill", colordot)
+                                .style("stroke", "black")
+                                .style("stroke-width", 0.5)
+                                .style("fill-opacity", 0.6)
+                                .on('mouseover', onMouseOverAttribute)
+                                .on('mouseleave', onMouseLeave);
+                        } else {
+                            g_point.selectAll(".dot").remove();
+                            var subplot = g_point.selectAll(".subgraph")
+                                .data(data, d => d.label)
+                                .attr("class", "subgraph")
+                                .attr('transform', function (d) {
+                                    return "translate(" + (x(d.pc1) - (subgSize.w + submarign.left + submarign.right) / 2) + "," + (y(d.pc2) - (subgSize.h + submarign.top + submarign.bottom) / 2) + ")"
+                                });
+                            // .on('mouseover', onMouseOverAttribute)
+                            // .on('mouseleave', onMouseLeave);
+                            subplot.exit().remove();
+                            var subinside = subplot
+                                .enter().append("g")
+                                .attr("class", "subgraph")
+                                .attr('transform', function (d) {
+                                    return "translate(" + (x(d.pc1) - (subgSize.w + submarign.left + submarign.right) / 2) + "," + (y(d.pc2) - (subgSize.h + submarign.top + submarign.bottom) / 2) + ")"
+                                })
+                                .on('click', onClickInstance)
+                                .on('mouseover', onMouseOverAttribute)
+                                .on('mouseleave', onMouseLeave);
+                            subinside.append("rect")
+                                .attr("class", "backgroundSub")
+                                .attr("width", subgSize.w + submarign.left + submarign.right)
+                                .attr("height", subgSize.h + submarign.top + submarign.bottom)
+                                .attr("x", 0)
+                                .attr("y", 0);
+                            var subpoint = subplot.selectAll(".point")
+                                .data(function (d) {
+                                    //var datapoint = Dataset.data.map(function(it){return [it[PCAplot.mainfield],it[d.label]]});
+                                    var datapoint = Dataset.data.map(function (it) {
+                                        return [it[d.label[0]], it[d.label[1]]]
+                                    });
+                                    var datax = datapoint.map(function (d) {
+                                        return d[0]
+                                    });
+                                    var datay = datapoint.map(function (d) {
+                                        return d[1]
+                                    });
+                                    var maxx = d3.max(datax);
+                                    var minx = d3.min(datax);
+                                    var maxy = d3.max(datay);
+                                    var miny = d3.min(datay);
+                                    datapoint.forEach(function (d) {
+                                        d[0] = (d[0] - minx) / (maxx - minx);
+                                        d[1] = (d[1] - miny) / (maxy - miny);
+                                    });
+                                    return datapoint;
+                                })
+                                .attr("cx", function (d) {
+                                    return subx(d[0]);
+                                })
+                                .attr("cy", function (d) {
+                                    return suby(d[1]);
+                                });
+                            subpoint.exit().remove();
+                            subpoint.enter()
+                                .append("circle")
+                                .attr("class", "point")
+                                .attr("r", 1)
+                                .attr("cx", function (d) {
+                                    return subx(d[0]);
+                                })
+                                .attr("cy", function (d) {
+                                    return suby(d[1]);
+                                })
+                                .style("fill", function (d) {
+                                    return '#4682b4';
+                                })
+                                .style('opacity', 0.8);
+                        }
+
+                        var circlebrand = g_axis.selectAll(".circle_brand")
+                            .data(brands)
+                            .attr("x", function (d) {
+                                return x(d.pc1) - 2.5;
                             })
-                            .style("top", function () {
-                                return (d3.event.y + 100) + "px"
+                            .attr("y", function (d) {
+                                return y(d.pc2) - 2.5;
+                            })
+                            .style("fill", function (d) {
+                                return color(d['brand']);
+                            }).on('mouseover', onMouseOverBrand)
+                            .on('mouseleave', onMouseLeave);
+                        ;
+                        circlebrand.exit().remove();
+                        circlebrand
+                            .enter().append("rect")
+                            .attr("class", "circle_brand")
+                            .attr("width", 5)
+                            .attr('height', 5)
+                            .attr("x", function (d) {
+                                return x(d.pc1) - 2.5;
+                            })
+                            .attr("y", function (d) {
+                                return y(d.pc2) - 2.5;
+                            })
+                            .style("fill", function (d) {
+                                return color(d['brand']);
+                            }).on('mouseover', onMouseOverBrand)
+                            .on('mouseleave', onMouseLeave);
+
+
+                        var temp_drag;
+                        var current_field;
+
+                        var dragHandler = d3.behavior.drag()
+                            .on("dragstart", function (d) {
+
+                                current_field = Dataset.schema.fieldSchema(d.brand);
+                                var proIwant = d3.selectAll($("[id='" + d.brand + "']")).select('div')
+                                //.attr ('class','schema-list-item ng-pristine ng-untouched ng-valid ui-droppable ui-droppable-disabled ng-empty ui-droppable-active drop-active');
+                                var pill = {
+                                    field: current_field.field,
+                                    title: current_field.title,
+                                    type: current_field.type,
+                                    aggregate: current_field.aggregate
+                                };
+                                Pills.dragStart(pill, null);
+                                // NotifyingService.notify();
+                                var ori = proIwant.select('span').html();
+                                //console.log(ori);
+                                /* temp_drag = proIwant.select('span').select(function() {
+                                     return this.parentNode.insertBefore(this.cloneNode(true), this.nextSibling);
+                                 });*/
+                                temp_drag = d3.select('bi-plot').append('span').html(ori);
+                                temp_drag.attr("class", 'pill draggable cafull-width no-right-margin field-info ng-pristine ng-untouched ng-valid ng-isolate-scope ui-draggable ui-draggable-handle ng-empty ui-draggable-dragging')
+                                    .style("position", "absolute")
+                                    .style("z-index", '9999')
+                                    .style("left", function () {
+                                        return ((d3.event.x || d3.event.pageX)) + "px"
+                                    })
+                                    .style("top", function () {
+                                        var con = (d3.event.y || d3.event.pageY) + 100;
+                                        return con + "px"
+                                    });
+                                d3.selectAll('.field-drop')
+                                    .attr("class", "field-drop ng-pristine ng-untouched ng-valid ui-droppable ng-not-empty ui-dropable-active drop-active ");
+                                NotifyingService.notify();
+                                // NotifyingService.notify();
+                                //console.log($(proIwant[0]));
+                                //$(proIwant[0]).trigger("mousedown");
+                                //$(proIwant[0]).trigger('DOMContentLoaded');
+                                //$(proIwant[0]).trigger('blur');
+                            })
+                            .on("drag", function (d) {
+                                temp_drag
+                                    .style("left", function () {
+                                        return d3.event.x + "px"
+                                    })
+                                    .style("top", function () {
+                                        return (d3.event.y + 100) + "px"
+                                    });
+
+                            })
+                            .on("dragend", function (d) {
+                                var proIwant = d3.selectAll("schema-list-item")
+                                    .data(Dataset.schema.fieldSchemas)
+                                    .filter(function (it) {
+                                        return it.field === d.brand;
+                                    })
+                                    .select('div')
+                                    .attr('class', 'schema-list-item ng-pristine ng-untouched ng-valid ui-droppable ui-droppable-disabled ng-empty');
+                                Pills.dragStop;
+
+                                var pos = temp_drag.node().getBoundingClientRect();
+                                temp_drag.remove();
+                                var tem_group = d3.selectAll(".shelf-group");
+                                tem_group = tem_group[0];
+                                var tem_group = tem_group.filter(function (d, i) {
+                                    var pos_g = d.getBoundingClientRect();
+                                    return (pos_g.top < pos.top && pos_g.bottom > pos.top && pos_g.left < pos.left && pos_g.right > pos.left)
+                                });
+
+                                try {
+                                    var chan = $(tem_group[0]).attr('channel-id').replace(/'/g, "");
+                                    // console.log(chan);
+                                    if (chan != null) {
+                                        Pills.set(chan, current_field);
+                                        Pills.listener.dragDrop(chan);
+                                        //.update(Spec.spec);
+                                    }
+                                } catch (e) {
+                                }
+                                NotifyingService.notify();
+                                d3.selectAll("div [d3-over='true']")
+                                    .attr('d3-over', 'false');
+
+
+                                //var event = new Event('submit');  // (*)
+                                //$(d3.select('.schema')[0]).dispatchEvent(event);
+                                d3.selectAll('.field-drop')
+                                    .attr("class", "field-drop ng-pristine ng-untouched ng-valid ui-droppable ng-not-empty");
                             });
 
-                    })
-                    .on("dragend", function (d) {
-                        var proIwant = d3.selectAll("schema-list-item")
-                            .data(Dataset.schema.fieldSchemas)
-                            .filter(function (it) {
-                                return it.field=== d.brand;
+                        var listitem = g_axis.selectAll(".line")
+                            .data(brands)
+                            .attr('x1', function (d) {
+                                return x(0)
+                            })//x(-d.pc1);})
+                            .attr('y1', function (d) {
+                                return x(0)
+                            })//y(-d.pc2); })
+                            .attr("x2", function (d) {
+                                return x(d.pc1);
                             })
-                            .select('div')
-                            .attr('class', 'schema-list-item ng-pristine ng-untouched ng-valid ui-droppable ui-droppable-disabled ng-empty');
-                        Pills.dragStop;
-
-                        var pos = temp_drag.node().getBoundingClientRect();
-                        temp_drag.remove();
-                        var tem_group = d3.selectAll(".shelf-group");
-                        tem_group = tem_group[0];
-                        var tem_group = tem_group.filter(function (d, i) {
-                            var pos_g = d.getBoundingClientRect();
-                            return (pos_g.top < pos.top && pos_g.bottom > pos.top && pos_g.left < pos.left && pos_g.right > pos.left)
-                        });
-
-                        try {
-                            var chan = $(tem_group[0]).attr('channel-id').replace(/'/g, "");
-                            // console.log(chan);
-                            if (chan != null) {
-                                Pills.set(chan, current_field);
-                                Pills.listener.dragDrop(chan);
-                                //.update(Spec.spec);
-                            }
-                        } catch (e) {
+                            .attr("y2", function (d) {
+                                return y(d.pc2);
+                            })
+                            .style("stroke", function (d) {
+                                return color(d['brand']);
+                            })
+                            .style("stroke-width", '1px')
+                            .on('mouseover', onMouseOverBrand)
+                            .on('mouseleave', onMouseLeave);
+                        if (dimension == 0) {
+                            listitem
+                                .on("dblclick", function (d) {
+                                    var proIwant = d3.selectAll($("[id='" + d.brand + "']"))
+                                        .select('div').select('span');
+                                    $(proIwant[0]).trigger("dblclick");
+                                })
+                                .call(dragHandler);
+                        } else {
+                            listitem
+                                .on("dblclick", function (d) {
+                                    // to do
+                                })
+                                .on("dragstart", null)
+                                .on("drag", null)
+                                .on("dragend", null);
                         }
-                        NotifyingService.notify();
-                        d3.selectAll("div [d3-over='true']")
-                            .attr('d3-over', 'false');
-
-
-                        //var event = new Event('submit');  // (*)
-                        //$(d3.select('.schema')[0]).dispatchEvent(event);
-                        d3.selectAll('.field-drop')
-                            .attr("class", "field-drop ng-pristine ng-untouched ng-valid ui-droppable ng-not-empty");
-                    });
-
-                var listitem = g_axis.selectAll(".line")
-                    .data(brands)
-                    .attr('x1', function (d) {
-                        return x(0)
-                    })//x(-d.pc1);})
-                    .attr('y1', function (d) {
-                        return x(0)
-                    })//y(-d.pc2); })
-                    .attr("x2", function (d) {
-                        return x(d.pc1);
-                    })
-                    .attr("y2", function (d) {
-                        return y(d.pc2);
-                    })
-                    .style("stroke", function (d) {
-                        return color(d['brand']);
-                    })
-                    .style("stroke-width", '1px')
-                    .on('mouseover', onMouseOverBrand)
-                    .on('mouseleave', onMouseLeave);
-                if (dimension == 0) {
-                    listitem
-                        .on("dblclick", function (d) {
-                            var proIwant = d3.selectAll($("[id='" + d.brand + "']"))
-                                .select('div').select('span');
-                            $(proIwant[0]).trigger("dblclick");
-                        })
-                        .call(dragHandler);
-                } else {
-                    listitem
-                        .on("dblclick", function (d) {
-                            // to do
-                        })
-                        .on("dragstart", null)
-                        .on("drag", null)
-                        .on("dragend", null);
-                }
-                listitem.exit().remove();
-                listitem
-                    .enter().append("line")
-                    .attr("class", "line square draggable")
-                    .attr('x1', function (d) {
-                        return x(0)
-                    })//x(-d.pc1);})
-                    .attr('y1', function (d) {
-                        return x(0)
-                    })//y(-d.pc2); })
-                    .attr("x2", function (d) {
-                        return x(d.pc1);
-                    })
-                    .attr("y2", function (d) {
-                        return y(d.pc2);
-                    })
-                    .style("stroke", function (d) {
-                        return color(d['brand']);
-                    })
-                    .style("stroke-width", '1px')
-                    .on('mouseover', onMouseOverBrand)
-                    .on('mouseleave', onMouseLeave);
-                if (dimension == 0) {
-                    listitem.on("dblclick", function (d) {
-                        var proIwant = d3.selectAll($("[id='" + d.brand + "']"))
-                            .select('div').select('span');
-                        $(proIwant[0]).trigger("dblclick");
-                    })
-                        .call(dragHandler);
-                } else {
-                    listitem
-                        .on("dblclick", function (d) {
-                            // to do
-                        })
-                        .on("dragstart", null)
-                        .on("drag", null)
-                        .on("dragend", null);
-                }
-                var tip = d3.tip()
-                    .attr('class', 'd3-tip tips ')
-                    .offset([10, 20])
-                    .direction('e')
-                    .html(function (values, title) {
-                        var str = ''
-                        str += '<h3>' + (title.length == 1 ? 'Brand ' : '') + title + '</h3>'
-                        str += "<table>";
-                        for (var i = 0; i < values.length; i++) {
-                            if (values[i].key != 'pc1' && values[i].key != 'pc2') {
-                                str += "<tr>";
-                                str += "<td>" + values[i].key + "</td>";
-                                var val = d3.format('.2f')(values[i].value);
-                                val = isNaN(val)?values[i].value:val;
-                                str += "<td class=pct>" + val + "</td>";
-                                str + "</tr>";
-                            }
+                        listitem.exit().remove();
+                        listitem
+                            .enter().append("line")
+                            .attr("class", "line square draggable")
+                            .attr('x1', function (d) {
+                                return x(0)
+                            })//x(-d.pc1);})
+                            .attr('y1', function (d) {
+                                return x(0)
+                            })//y(-d.pc2); })
+                            .attr("x2", function (d) {
+                                return x(d.pc1);
+                            })
+                            .attr("y2", function (d) {
+                                return y(d.pc2);
+                            })
+                            .style("stroke", function (d) {
+                                return color(d['brand']);
+                            })
+                            .style("stroke-width", '1px')
+                            .on('mouseover', onMouseOverBrand)
+                            .on('mouseleave', onMouseLeave);
+                        if (dimension == 0) {
+                            listitem.on("dblclick", function (d) {
+                                var proIwant = d3.selectAll($("[id='" + d.brand + "']"))
+                                    .select('div').select('span');
+                                $(proIwant[0]).trigger("dblclick");
+                            })
+                                .call(dragHandler);
+                        } else {
+                            listitem
+                                .on("dblclick", function (d) {
+                                    // to do
+                                })
+                                .on("dragstart", null)
+                                .on("drag", null)
+                                .on("dragend", null);
                         }
-                        str += "</table>";
+                        var tip = d3.tip()
+                            .attr('class', 'd3-tip tips ')
+                            .offset([10, 20])
+                            .direction('e')
+                            .html(function (values, title) {
+                                var str = ''
+                                str += '<h3>' + (title.length == 1 ? 'Brand ' : '') + title + '</h3>'
+                                str += "<table>";
+                                for (var i = 0; i < values.length; i++) {
+                                    if (values[i].key != 'pc1' && values[i].key != 'pc2') {
+                                        str += "<tr>";
+                                        str += "<td>" + values[i].key + "</td>";
+                                        var val = d3.format('.2f')(values[i].value);
+                                        val = isNaN(val) ? values[i].value : val;
+                                        str += "<td class=pct>" + val + "</td>";
+                                        str + "</tr>";
+                                    }
+                                }
+                                str += "</table>";
 
-                        return str;
-                    });
-                svg.call(tip);
-                g_axis.selectAll('.place-label').remove();
-                if (PCAplot.dim) {
-                    var axis = g_axis.node();
-                    axis.parentNode.appendChild(axis);
+                                return str;
+                            });
+                        svg.call(tip);
+                        g_axis.selectAll('.place-label').remove();
+                        if (PCAplot.dim) {
+                            var axis = g_axis.node();
+                            axis.parentNode.appendChild(axis);
 
-                    var arrangeLabels = function () {
-                        var move = 1;
-                        while (move > 0) {
-                            move = 0;
-                            g_axis.selectAll(".place-label")
-                                .each(function () {
-                                    var that = this,
-                                        a = this.getBoundingClientRect();
+                            var arrangeLabels = function () {
+                                var move = 1;
+                                while (move > 0) {
+                                    move = 0;
                                     g_axis.selectAll(".place-label")
                                         .each(function () {
-                                            if (this != that) {
-                                                var b = this.getBoundingClientRect();
-                                                if ((Math.abs(a.left - b.left) * 2 < (a.width + b.width)) &&
-                                                    (Math.abs(a.top - b.top) * 2 < (a.height + b.height))) {
-                                                    // overlap, move labels
-                                                    var dx = (Math.max(0, a.right - b.left) +
-                                                        Math.min(0, a.left - b.right)) * 0.01,
-                                                        dy = (Math.max(0, a.bottom - b.top) +
-                                                            Math.min(0, a.top - b.bottom)) * 0.02,
-                                                        tt = d3.transform(d3.select(this).attr("transform")),
-                                                        to = d3.transform(d3.select(that).attr("transform"));
-                                                    move += Math.abs(dx) + Math.abs(dy);
+                                            var that = this,
+                                                a = this.getBoundingClientRect();
+                                            g_axis.selectAll(".place-label")
+                                                .each(function () {
+                                                    if (this != that) {
+                                                        var b = this.getBoundingClientRect();
+                                                        if ((Math.abs(a.left - b.left) * 2 < (a.width + b.width)) &&
+                                                            (Math.abs(a.top - b.top) * 2 < (a.height + b.height))) {
+                                                            // overlap, move labels
+                                                            var dx = (Math.max(0, a.right - b.left) +
+                                                                Math.min(0, a.left - b.right)) * 0.01,
+                                                                dy = (Math.max(0, a.bottom - b.top) +
+                                                                    Math.min(0, a.top - b.bottom)) * 0.02,
+                                                                tt = d3.transform(d3.select(this).attr("transform")),
+                                                                to = d3.transform(d3.select(that).attr("transform"));
+                                                            move += Math.abs(dx) + Math.abs(dy);
 
-                                                    to.translate = [to.translate[0] + dx, to.translate[1] + dy];
-                                                    tt.translate = [tt.translate[0] - dx, tt.translate[1] - dy];
-                                                    d3.select(this).attr("transform", "translate(" + tt.translate + ")");
-                                                    d3.select(that).attr("transform", "translate(" + to.translate + ")");
-                                                    a = this.getBoundingClientRect();
-                                                }
-                                            }
+                                                            to.translate = [to.translate[0] + dx, to.translate[1] + dy];
+                                                            tt.translate = [tt.translate[0] - dx, tt.translate[1] - dy];
+                                                            d3.select(this).attr("transform", "translate(" + tt.translate + ")");
+                                                            d3.select(that).attr("transform", "translate(" + to.translate + ")");
+                                                            a = this.getBoundingClientRect();
+                                                        }
+                                                    }
+                                                });
                                         });
-                                });
-                        }
-                    }
-
-                    var foci = [],
-                        labels = [];
-
-                    // Store the projected coordinates of the places for the foci and the labels
-                    brands.forEach(function (d, i) {
-                        var shifty = y(d.pc2);
-                        shifty += (d.pc2 < 0) ? 15 : -5;
-                        // foci.push({x: x(d.pc1), y: shifty});
-                        labels.push({x: x(d.pc1), y: shifty, label: d.brand, anchor: (d.pc1 < 0 ? 'end' : 'start')});
-                    });
-
-                    var placeLabels = g_axis.selectAll('.place-label')
-                        .data(labels)
-                        .enter()
-                        .append('text')
-                        .attr('class', 'place-label')
-                        .attr('text-anchor', function (d) {
-                            return d.anchor
-                        })
-                        .attr('x', function (d) {
-                            return d.x;
-                        })
-                        .attr('y', function (d) {
-                            return d.y;
-                        })
-                        .text(function (d) {
-                            return d.label.replace("Score", "");
-                        })
-                        .style("fill", function (d) {
-                            return color(d.label);
-                        })
-                        .style("font-weight", "bold");
-
-                    /*force.on("tick", function(e) {
-                         var k = .1 * e.alpha;
-                         labels.forEach(function(o, j) {
-                             // The change in the position is proportional to the distance
-                             // between the label and the corresponding place (foci)
-                             o.y += (foci[j].y - o.y) * k;
-                             o.x += (foci[j].x - o.x) * k;
-                         });
-
-                         // Update the position of the text element
-                         g_axis.selectAll("text.place-label")
-                             .attr("x", function(d) { return d.x; })
-                             .attr("y", function(d) { return d.y; });
-                     });
-
-                     force.start();*/
-                    arrangeLabels();
-                }
-                PCAplot.dataencde = data;
-            }catch(e){
-                    let brands = brand_names
-                        .map(function (key, i) {
-                            return {
-                                brand: key,
+                                }
                             }
-                        });
-                    PCAplot.estimate(brands, dimension, data);
-                    PCAplot.error = {code:1};
-                    Alerts.add('Not enough dimension');
+
+                            var foci = [],
+                                labels = [];
+
+                            // Store the projected coordinates of the places for the foci and the labels
+                            brands.forEach(function (d, i) {
+                                var shifty = y(d.pc2);
+                                shifty += (d.pc2 < 0) ? 15 : -5;
+                                // foci.push({x: x(d.pc1), y: shifty});
+                                labels.push({
+                                    x: x(d.pc1),
+                                    y: shifty,
+                                    label: d.brand,
+                                    anchor: (d.pc1 < 0 ? 'end' : 'start')
+                                });
+                            });
+
+                            var placeLabels = g_axis.selectAll('.place-label')
+                                .data(labels)
+                                .enter()
+                                .append('text')
+                                .attr('class', 'place-label')
+                                .attr('text-anchor', function (d) {
+                                    return d.anchor
+                                })
+                                .attr('x', function (d) {
+                                    return d.x;
+                                })
+                                .attr('y', function (d) {
+                                    return d.y;
+                                })
+                                .text(function (d) {
+                                    return d.label.replace("Score", "");
+                                })
+                                .style("fill", function (d) {
+                                    return color(d.label);
+                                })
+                                .style("font-weight", "bold");
+
+                            /*force.on("tick", function(e) {
+                                 var k = .1 * e.alpha;
+                                 labels.forEach(function(o, j) {
+                                     // The change in the position is proportional to the distance
+                                     // between the label and the corresponding place (foci)
+                                     o.y += (foci[j].y - o.y) * k;
+                                     o.x += (foci[j].x - o.x) * k;
+                                 });
+
+                                 // Update the position of the text element
+                                 g_axis.selectAll("text.place-label")
+                                     .attr("x", function(d) { return d.x; })
+                                     .attr("y", function(d) { return d.y; });
+                             });
+
+                             force.start();*/
+                            arrangeLabels();
+                        }
+                        PCAplot.dataencde = data;
+                    } catch (e) {
+                        let brands = brand_names
+                            .map(function (key, i) {
+                                return {
+                                    brand: key,
+                                }
+                            });
+                        PCAplot.estimate(brands, dimension, data);
+                        PCAplot.error = {code: 1};
+                        Alerts.add('Not enough dimension');
+                    }
+                }else if (dimension >2){
+                    PCAplot.forcetsne = d3v4.forceSimulation()
+                        .alphaDecay(0)
+                        .alpha(0.1);
+                    PCAplot.caltsne();
                 }
             }
-            return PCAplot};
+            return PCAplot;
+        };
         function getSpPoint(A,B,C){
             var x1=A.x, y1=A.y, x2=B.x, y2=B.y, x3=C.x, y3=C.y;
             var px = x2-x1, py = y2-y1, dAB = px*px + py*py;
@@ -3515,7 +3741,7 @@ angular.module('pcagnosticsviz')
             PCAplot.marks = support[prop.dim].marks.map((m,i)=> {return {label:abtractionLevel[i], mark: m, level:i}});
             var axis = prop.fieldDefs.map(function(d){return d.field});
             // PCAplot.spec = mspec;
-            prop.charts = (prop.dim>4?[prop.fieldDefs]:(getData(prop.dim).sort(prop.ranking)))
+            prop.charts = (prop.dim>2?[prop.fieldDefs]:(getData(prop.dim).sort(prop.ranking)))
             .map(function(d){
                 var chart = prop.plot((d.fieldDefs||d ),prop.mark,prop.mspec);
                 chart.vlSpec.config.typer = {type: prop.type,val: (prop.dim>1?0:getTypeVal(undefined,d.fieldDefs||d))};
@@ -3562,7 +3788,7 @@ angular.module('pcagnosticsviz')
             //     return PCAplot.data[dim>2?1:dim];
             else{
                 // var dataout = combinations(PCAplot.data[0],0,0,dim,[],[]);
-                oncalscagnotic(dim);
+                onCal_scagnotic(dim);
                 // var dataout = combinations(PCAplot.data[0],dim+1);
                 return [];
             }
@@ -4079,7 +4305,7 @@ angular.module('pcagnosticsviz')
             mark2plot (prop.mark,nprop.mspec,Dataset.schema.fieldSchemas.slice(0,prop.dim+1));
             nprop.charts.length = 0;
 
-            var dataref = prop.dim>4?[prop.fieldDefs]:getData(nprop.dim);//?PCAplot.dataref:Dataset.schema.fieldSchemas;
+            var dataref = prop.dim>2?[prop.fieldDefs]:getData(nprop.dim);//?PCAplot.dataref:Dataset.schema.fieldSchemas;
             nprop.charts = dataref.sort(nprop.ranking)
                 .map(function(d) {
                     var chart = drawGuideexplore((d.fieldDefs||d),nprop.mark,nprop.mspec);
@@ -4486,15 +4712,164 @@ angular.module('pcagnosticsviz')
             return flieds.map(d=>d.replace(/-/g,'')).naturalSort().join('-');
         }
 
-        /**
-         *
-         * @param primfield
-         * @param dataschema
-         * @param data
-         * @param maxCombine
-         */
+        function caldrawtsne(canvas) {
+            importScripts("https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.20/require.min.js");
+            // const context = canvas.getContext("2d");
+            //
+            //
+            //     context.fillStyle = `rgb(${(Math.random() * 255) | 0},${(Math.random() *
+            //         255) |
+            //     0},${(Math.random() * 255) | 0})`;
+            //     context.fillRect(Math.random() * 450, Math.random() * 150, 10, 10);
+            //     requestAnimationFrame(step);
+           // require(['webpage'],function(){
+           //     var page = webpage.create();
+           //     page.content = '<html><body></body></html>';
+           //
+           //     page.includeJs('http://d3js.org/d3.v3.min.js', function() {
+           //         var html = page.evaluate(function() {
+           //             var body = d3.select('body');
+           //             var svg = body.append('svg');
+           //             svg.append('rect');
+           //             svg.append('circle');
+           //             var s = new XMLSerializer();
+           //             return s.serializeToString(document.querySelector('svg'));
+           //         });
+           //         console.log(html);
+           //         phantom.exit();
+           //     });
+           // });
+
+        }
+        function caltsne (args) {
+            let timeStart = performance.now();
+
+            require(['https://idatavisualizationlab.github.io/binner/build/js/binnerN.min.js'],
+                function () {
+                    let binF = window.binnerN()
+                        .startBinGridSize(2)
+                        .isNormalized(false)
+                        .minNumOfBins(1)
+                        .maxNumOfBins(20)
+                        .data([]).updateRadius(true).binType("leader");
+                    // oncalumap (args,binF);
+                    oncaltsne (args,binF);
+            });
+
+            function oncalumap (args,bin) {
+                let config = {
+                    dim: args.schema.length
+                };
+                try {
+                    const points = matrix(args.data,args.schema);
+                    console.log("Succes load UMAP");
+                    const umap = new window.UMAP();
+                    const nEpochs = umap.fit(points);
+                    const embedding = umap.getEmbedding();
+                    console.log(embedding)
+                    notify({data: embedding,config: config});
+                    console.log('-----UMAP TIME----- '+ (performance.now()-timeStart));
+                }catch(e){
+                    console.log('fail load umap');
+                }
+            }
+            function oncaltsne (args,bin){
+                let config = {
+                    dim: args.schema.length
+                };
+                const model = new tsnejs.tSNE({
+                    dim: 2,
+                    perplexity: args.perplexity
+                });
+
+                const points = matrix(args.data,args.schema);
+
+                //bin before tsne
+                bin.data([]).data(points)
+                    .calculate();
+
+                config.radius = Math.min(bin.binRadius/2,1/Math.sqrt(bin.bins.length)/2);
+                let density_max = 0;
+
+                const points_binned = bin.bins.map(b=>b.val.slice());
+
+                const binout = bin.bins.map((d,i)=>{
+                    d.id = 'radar'+i;
+                    density_max = density_max>d.length?density_max:d.length;
+                    return d;
+                });
+                console.log('-----BIN TIME----- '+ (performance.now()-timeStart));
+                model.initDataRaw(points_binned);
+
+                var cost = 100,
+                    cost0 = 0;
+                let dataout;
+                while (Math.abs(cost - cost0) > 1e-6) {
+                    cost = cost0;
+                    cost0 = cost * 0.9 + 0.1 * model.step();
+                    let sol = model.getSolution();
+                    // sol.forEach((d,i)=>{
+                    //     d.data = points[i];
+                    // });
+                    // bin
+                    // bin.data([]).data(sol)
+                    //     .calculate();
+                    // let dataout = bin.bins;
+                    // config.radius = bin.binRadius/2;
+                    // let density_max = 0;
+                    // dataout.forEach((d,i)=>{
+                    //     d.id = 'radar'+i;
+                    //     d.r = 0;
+                    //     d.forEach(function (p) {
+                    //         const dis= distance(d.val,p)*0.5;
+                    //         d.r = d.r>dis?d.r:dis;
+                    //     });
+                    //     density_max = density_max>d.length?density_max:d.length;
+                    //     d.val.data_scaled = d.val.data.map(e=> e/config.radius*d.r);//change radius
+                    // });
+                    let range = [sol[0][0],sol[0][0]];
+                    sol.forEach(d=>{
+                        range[0] = Math.min(range[0], Math.min(d[0],d[1] ));
+                        range[1] = Math.max(range[1], Math.max(d[0],d[1] ));
+                    });
+                    const scale = function(d){
+                        return (d-range[0])/(range[1]-range[0]);
+                    };
+                    dataout = sol.map((d,i)=>{
+                        let item = d.map(p=> scale(p));
+                        item.id = binout[i].id;
+                        item.r = binout[i].length/density_max*config.radius;
+                        item.data_scaled = binout[i].val.map(e=>e/config.radius*item.r);
+                        return item
+                    });
+                    notify({data: dataout,config: config});
+                }
+                return complete({data: dataout,config: config,status: 'done'});
+            }
+            function matrix (Arraydata,fieldValue) {
+                // check valid
+                var points =  Arraydata.map(function(d,i){
+                    var point = fieldValue.map(
+                        (f,i) =>{
+                            if (f.primitiveType === 'string') {
+                                const maxv = f.stats.distinct-1;
+                                return Object.keys(f.stats.unique).indexOf(d[f.field])/maxv;
+                            }
+                            // var rangec = d3.extent(d3.keys(fieldValue.stats.unique).map(d=>+d));
+                            var rangec =   [f.stats.min,f.stats.max];
+                            var scaledval = (d[f.field]-rangec[0])/(rangec[1]-rangec[0]);
+
+                            return isNaN(scaledval)?0.5:scaledval||-0.1; // treat undefined value like number
+                        });
+                    point.data={key: i, value: d};
+                    return point;
+                });
+
+                return points;
+            }
+        }
         function calscagnotic (dataschema,data,maxCombine){
-            // importScripts("//lib/require.min.js");
+            importScripts("https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.20/require.min.js");
             // importScripts("../lib/scagnostics.min.js");
             // importScripts("../lib/require.min.js");
 
@@ -4525,7 +4900,6 @@ angular.module('pcagnosticsviz')
             const onScag = (maxCombine)=>{
                 //asume that _fieldSchemaIndex sorted and won't change over time
                 const  combination = k_combinations(Object.keys(dataschema._fieldSchemaIndex), maxCombine);
-                console.log(combination)
                 combination.forEach((fields,index_progress)=>{
                     let dest = dataschema._fieldSchemaIndex[fields[0]];
                     let calKey = false; // should we calculate scag or not
@@ -4800,26 +5174,233 @@ angular.module('pcagnosticsviz')
             }catch(e){}
         }
         PCAplot.initialize = _.once(handleScagnostic);
-        PCAplot.workerScagnotic = undefined;
+        PCAplot.workerOjects = {};
         PCAplot.checkCalculateStatus = function (dim) {
 
         };
-        PCAplot.calscagnotic = _.once(oncalscagnotic);
-        function oncalscagnotic (index){
-            let count =0;
-            if (!PCAplot.workerScagnotic) {
+        PCAplot.calscagnotic = _.once(onCal_scagnotic);
+        PCAplot.caltsne = onCal_tsne;
+        PCAplot.drawtsne = onDraw_tsne;
+        // PCAplot.Overviewcanvas = ('OffscreenCanvas' in window) ? $('canvas.biplot')[0].transferControlToOffscreen() : $('canvas.biplot')[0];
+        PCAplot.updateplot = function (dataor,dimension,config,isdone) { // support tsne only
+            const biplotselect = $('svg.biplot');
+            // var data = _.cloneDeep(dataor);
+            const margin = {top: 20, right: 20, bottom: 20, left: 20};
+            const width = biplotselect.width() - margin.left - margin.right;
+            const height = biplotselect.width() - margin.top - margin.bottom;
+            const svg = d3v4.select('svg.biplot');
+            const g = svg.select('#bi-plot-g');
+            var x = d3v4.scaleLinear().domain([0,1]).range([0, width]); // switch to match how R biplot shows it
+            var y = d3v4.scaleLinear().domain([0,1]).range([height, 0]);
+            const rScale = d3v4.scaleLinear()
+                .range([0,config.radius])
+                .domain([0, 1]);
+            const opacityScale = d3v4.scaleLinear()
+                .range([0.2,1])
+                .domain([0, 1]);
+            const angleSlice = d3v4.scaleLinear()
+                .domain([0,1])
+                .range([0, Math.PI * 2 / config.dim]);
+            let radarcreate = d3v4.radialLine()
+                .curve(d3v4.curveCatmullRomClosed.alpha(0.5))
+                .angle(function(_,i) {  return angleSlice(i); });
+            if (dimension>2){
+                g.select('#bi-plot-axis').selectAll('*').remove();
+                let subgraph = g.select('#bi-plot-point').selectAll('g.subgraph').data(dataor, d => d.id);
+                let nsub = subgraph.enter()
+                    .append('g')
+                    .attr('class', 'subgraph');
+                subgraph.exit().remove();
+                nsub.merge(subgraph).transition().attr('transform', d => 'translate(' + x(d[0]) + ',' + y(d[1]) + ')');
+                let ncircle = nsub
+                    .append('circle')
+                    .attr('class', 'cradar')
+                    .style('fill', 'rgb(205,205,205)')
+                    .style('stroke', 'rgb(205,205,205)')
+                    .style('stroke-width', 0.3)
+                    .style('stroke-opacity', 1)
+                    .style('fill-opacity', 0.1)
+                    .merge(subgraph.select('circle.cradar'))
+                    .attr('r', d => x(d.r || config.radius));
+                let nradar = nsub
+                    .append('path')
+                    .attr('class', 'radar')
+                    .attr('fill', 'none')
+                    .attr('stroke', 'steelblue')
+                    .merge(subgraph.select('path.radar'))
+                    .attr('d', p => {
+                        const fixedscale = Math.max(x(p.r || config.radius),10)/x(p.r || config.radius);
+                        return radarcreate.radius(function(d) { return x(rScale(d))*fixedscale; })(p.data_scaled)});
+                // if (isdone) {
+                    // Update and restart the simulation.
+                    let s = 1, c = 0;
+                    PCAplot.forcetsne.on('tick', function () {
+                        const rangex = d3.extent(nsub.merge(subgraph).data(),d=>d.x);
+                        const rangey = d3.extent(nsub.merge(subgraph).data(),d=>d.y);
+                        const range = [Math.min(rangex[0],rangey[0]),Math.max(rangex[1],rangey[1])];
+                        x.domain(range);
+                        y.domain(range);
+                        nsub.merge(subgraph).attr('transform', d => 'translate(' + x(d.x * s - d.y * c) + ',' + y(d.x * c + d.y * s) + ')');
+                    });
+                    PCAplot.forcetsne.nodes(g.select('#bi-plot-point').selectAll('g.subgraph').data()).force('tsne', function (alpha) {
+                        g.select('#bi-plot-point').selectAll('g.subgraph').data().forEach((d, i) => {
+                            d.x += alpha * (d[0]*10 - d.x);
+                            d.y += alpha * (d[1]*10 - d.y);
+                        });
+                    }) .force('collide', d3v4.forceCollide().radius(d => x(d.r)));
+                    PCAplot.forcetsne.alphaDecay(0.02);
+                // }
+            }
+        };
+
+        function onDraw_tsne(canvas){
+            const currentcal = 'drawtsne';
+            if (!PCAplot.workerOjects[currentcal]) {
+                PCAplot.calculateState.push(currentcal);
+                PCAplot.workerOjects[currentcal] = Webworker.create(caldrawtsne, {async: true}); // create worker
+                PCAplot.workerOjects[currentcal].run(canvas).then(function (result) {
+                    _.pull(PCAplot.calculateState,currentcal); // finish draw
+                }, null, function (progress) {
+                    // Process results
+
+                }).catch(function (oError) {
+                    PCAplot.workerOjects[currentcal] = undefined;
+                });
+            }else if (!PCAplot.calculateState[currentcal]){ // free to draw
+                PCAplot.workerOjects[currentcal].run(canvas).then(function (result) {
+                    _.pull(PCAplot.calculateState,currentcal); // finish draw
+                }, null, function (progress) {
+                    // Process results
+
+                }).catch(function (oError) {
+                    PCAplot.workerOjects[currentcal] = undefined;
+                });
+            }
+        }
+        let computetime =[];
+        function onCal_tsne (){
+            if (!PCAplot.workerOjects['tsne']) {
+                computetime[0] =performance.now();
+                const currentcal = 'tsne';
+                PCAplot.calculateState.push(currentcal);
+                PCAplot.workerOjects[currentcal] = Webworker.create(caltsne, {async: true,
+                    header: 'const window = {}\n' +
+                        'importScripts("https://raw.githack.com/karpathy/tsnejs/master/tsne.js");\n' +
+                        'importScripts("https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.20/require.min.js");\n' +
+                        'importScripts("https://raw.githack.com/Zipexpo/umap-js/master/lib/umap-js.min.js");'});
+                PCAplot.workerOjects[currentcal].run({data: Dataset.data,schema:Dataset.schema.fieldSchemas,Perplexity:10}).then(function (result) {
+                    console.log(result);
+                    _.pull(PCAplot.calculateState,currentcal);
+                    PCAplot.workerOjects[currentcal] = undefined;
+                    computetime[1] =performance.now();
+                    console.log('DONE TSNE IN: '+ (computetime[1]-computetime[0]));
+                    PCAplot.updateplot(result.data,PCAplot.dim,result.config,true);
+                }, null, function (progress) {
+                    // Process results
+                    console.log(progress);
+                    PCAplot.updateplot(progress.data,PCAplot.dim,progress.config);
+                }).catch(function (oError) {
+                    PCAplot.workerOjects[currentcal] = undefined;
+                });
+            }
+        };
+
+
+
+        let calculating = false;
+
+        var calculateQueue = new Heap(function(a, b){
+                return a.priority - b.priority;});
+
+
+
+
+        // TODO working with logic calculation
+        function oncalculate (name,workerFunc,arg,oncompleteFunc,onprogressFunc,onerror,iskeep){
+
+            function calculateQueueNext() {
+                // render next item in the queue
+                if (calculateQueue.size() > 0) {
+                    var next = calculateQueue.pop();
+                    next.parse();
+                } else {
+                    // or say that no one is calculating
+                    calculating = false;
+                }
+
+            }
+            function parseCal(){
+                if (!PCAplot.workerOjects[name]) {
+                    PCAplot.calProcess = 0;
+                    const currentcal = name;
+                    PCAplot.calculateState.push(currentcal);
+                    PCAplot.workerOjects[name] = Webworker.create(workerFunc, {async: true});
+
+                    let calculateQueueNextPromise = null;
+
+                    PCAplot.workerOjects[name].run(arg).then(function (result) {
+
+                        handleScagnostic(index);
+                        _.pull(PCAplot.calculateState,currentcal);
+                        PCAplot.workerOjects['Scagnostic'] = undefined;
+                        if (index===1)// auto trigger scagnostic calcualtion for 3D
+                            onCal_scagnotic (2);
+                        PCAplot.calProcess = 0;
+                        calculateQueueNextPromise = $timeout(calculateQueueNext, 1);
+                    }, null, function (progress) {
+                        PCAplot.calProcess = progress.progress*100;
+                        // Process results
+                        var label_stack = [progress.fields.shift()];
+                        var source = Dataset.schema._fieldSchemaIndex[label_stack[0]];
+                        if (source.scagStats=== undefined) {
+                            source.scagStats = {};
+                        }
+                        source = source.scagStats;
+                        var source_scag = source;
+                        progress.fields.forEach(f=> {
+                            label_stack.push(f);
+                            if (source[f]=== undefined) {
+                                source[f] = {};
+                                source[f].label = label_stack.map(l=>l);
+                                source[f].scagStats = {};
+                            }
+                            source_scag = source[f];
+                            source = source[f].scagStats;
+                        });
+                        source_scag.scag = progress.value;
+                    }).catch(function (oError) {
+                        PCAplot.workerOjects[name] = undefined;
+                        calculateQueueNextPromise = $timeout(calculateQueueNext, 1);
+                    });
+                }
+            }
+            if (!calculating) { // if no instance is being render -- rendering now
+                calculating=true;
+                parseCal();
+
+            } else {
+                // otherwise queue it
+                calculateQueue.push({
+                    priority: scope.priority || 0,
+                    parse: parseCal
+                });
+            }
+        }
+
+        function onCal_scagnotic (index){
+            if (!PCAplot.workerOjects['Scagnostic']) {
                 PCAplot.calProcess = 0;
-                PCAplot.calculateState = 'Scagnostic 2D';
-                PCAplot.workerScagnotic = Webworker.create(calscagnotic, {async: true});
-                PCAplot.workerScagnotic.run(Dataset.schema, Dataset.data,index+1).then(function (result) {
+                const currentcal = 'Scagnostic';
+                PCAplot.calculateState.push(currentcal);
+                PCAplot.workerOjects['Scagnostic'] = Webworker.create(calscagnotic, {async: true});
+                PCAplot.workerOjects['Scagnostic'].run(Dataset.schema, Dataset.data,index+1).then(function (result) {
                     handleScagnostic(index);
-                    PCAplot.calculateState = null;
-                    PCAplot.workerScagnotic = undefined;
+                    _.pull(PCAplot.calculateState,currentcal);
+                    PCAplot.workerOjects['Scagnostic'] = undefined;
                     if (index===1)// auto trigger scagnostic calcualtion for 3D
-                        oncalscagnotic (2);
+                        onCal_scagnotic (2);
                     PCAplot.calProcess = 0;
                 }, null, function (progress) {
-                    count++;
                     PCAplot.calProcess = progress.progress*100;
                     // Process results
                     var label_stack = [progress.fields.shift()];
@@ -4841,7 +5422,7 @@ angular.module('pcagnosticsviz')
                     });
                     source_scag.scag = progress.value;
                 }).catch(function (oError) {
-                    PCAplot.workerScagnotic = undefined;
+                    PCAplot.workerOjects['Scagnostic'] = undefined;
                 });
             }
 
@@ -4866,8 +5447,12 @@ angular.module('pcagnosticsviz')
 
         PCAplot.mark2mark = mark2mark;
         PCAplot.reset = function(hard) {
-            if (PCAplot.workerScagnotic)
-                PCAplot.workerScagnotic.stop();
+            PCAplot.calculateState = [];
+            _.forEach(PCAplot.workerOjects,function(worker,key){
+                if (worker)
+                    worker.stop();
+                delete PCAplot.workerOjects[key];
+            });
             var spec = instantiate();
             spec.transform.filter = FilterManager.reset(null, hard);
             PCAplot.data = [];
@@ -4881,8 +5466,8 @@ angular.module('pcagnosticsviz')
             PCAplot.mspec = null;
             PCAplot.state = states.IDLE;
             PCAplot.initialize = _.once(handleScagnostic);
-            PCAplot.calscagnotic = _.once(oncalscagnotic);
-            PCAplot.calculateState = null;
+            PCAplot.calscagnotic = _.once(onCal_scagnotic);
+
             //PCAplot.plot(Dataset.data);
         };
         PCAplot.reset();
@@ -4892,190 +5477,6 @@ angular.module('pcagnosticsviz')
         });
         return PCAplot;
     }]);
-'use strict';
-
-angular.module('vlui')
-    .service('GuidePill', ['Dataset' , function (Dataset,PCAplot) {
-        var GuidePill = {
-            // Functions
-
-
-            get: get,
-            // Event
-
-            // Event, with handler in the listener
-
-            /** Set a fieldDef for a channel */
-            set: set,
-
-            /** Remove a fieldDef from a channel */
-
-            // Data
-            pills: {},
-            /** Listener  */
-            listener: null
-        };
-
-        // Add listener type that Pills just pass arguments to its listener
-        // FIXME: properly implement listener pattern
-        [
-            'add', 'select', 'preview', 'update', 'reset', 'sort'
-        ].forEach(function(listenerType) {
-            GuidePill[listenerType] = function() {
-                if (GuidePill.listener && GuidePill.listener[listenerType]) {
-                    return GuidePill.listener[listenerType].apply(null, arguments);
-                }
-            };
-        });
-
-
-
-        function set(type) {
-            return
-        }
-
-        /**
-         * Get a fieldDef of a pill of a given channelId
-         */
-        function get(channelId) {
-            return GuidePill.pills[channelId];
-        }
-
-
-        return GuidePill;
-    }]);
-
-'use strict';
-
-angular.module('pcagnosticsviz')
-  // TODO: rename to Query once it's complete independent from Polestar
-  .service('Wildcards', ["ANY", "vl", "cql", "Dataset", "Alerts", function(ANY, vl, cql, Dataset, Alerts) {
-    var Wildcards = {
-      list: null,
-      addItem: addItem,
-      addField: addField,
-      removeItem: removeItem,
-      removeField: removeField
-    };
-
-    function reset() {
-      Wildcards.list = [
-        {
-          title: 'Categorical Fields',
-          field: '?',
-          type: {enum: [vl.type.NOMINAL, vl.type.ORDINAL]},
-          immutable: true
-        },
-        {
-          title: 'Temporal Fields',
-          field: '?',
-          type: vl.type.TEMPORAL,
-          immutable: true
-        },
-        {
-          title: 'Quantitative Fields',
-          field: '?',
-          type: vl.type.QUANTITATIVE,
-          immutable: true
-        }
-      ];
-    }
-    reset();
-
-    Dataset.onUpdate.push(reset);
-
-    function addItem(fieldDef) {
-      var wildcard = {
-        title: null,
-        field: {enum: []},
-        type: {enum: []}
-      };
-      addField(wildcard, fieldDef, true);
-
-      Wildcards.list.push(wildcard);
-
-      return wildcard;
-    }
-
-    function pushIfNotExist(array, item) {
-      if (array.indexOf(item) === -1) {
-        array.push(item);
-      }
-    }
-
-    function addField(wildcard, fieldDef, allowMixingType) {
-      // Augment type
-      // Since our wildcard are always created by addItem() method,
-      // it is always an enum spec.
-      if (allowMixingType) {
-        if (cql.enumSpec.isEnumSpec(fieldDef.type)) {
-          fieldDef.type.enum.forEach(function(type) {
-            pushIfNotExist(wildcard.type.enum, type);
-          });
-        } else {
-          pushIfNotExist(wildcard.type.enum, fieldDef.type);
-        }
-      } else {
-        if (cql.enumSpec.isEnumSpec(fieldDef.type)) {
-          var typeMissing = vl.util.some(fieldDef.type.enum, function(type) {
-            return !vl.util.contains(wildcard.type.enum, type);
-          });
-          if (typeMissing) {
-            Alerts.add('Cannot create a wildcard that mixes multiple types');
-            return;
-          }
-        } else {
-          if (!vl.util.contains(wildcard.type.enum, fieldDef.type)) {
-            Alerts.add('Cannot create a wildcard that mixes multiple types');
-            return;
-          }
-        }
-      }
-
-      // Augment aggregate(count) and field
-      if (cql.enumSpec.isEnumSpec(fieldDef.field)) {
-        if (fieldDef.field.enum) {
-          fieldDef.field.enum.forEach(function(field) {
-            pushIfNotExist(wildcard.field.enum, field);
-          });
-        } else { // Preset wildcard
-          Dataset.schema.fieldSchemas.forEach(function(fieldSchema) {
-            if (wildcard.type.enum ?
-                  vl.util.contains(wildcard.type.enum, fieldSchema.type) :
-                  fieldSchema.type === wildcard.type
-               ) {
-              pushIfNotExist(wildcard.field.enum, fieldSchema.field);
-            }
-          });
-        }
-      } else if (fieldDef.aggregate === 'count') {
-        wildcard.aggregate = {enum: [undefined, 'count']};
-        pushIfNotExist(wildcard.field.enum, '*');
-      } else { // general fieldDef
-        pushIfNotExist(wildcard.field.enum, fieldDef.field);
-      }
-
-      return wildcard; // support chaining
-    }
-
-    function removeItem(wildcard) {
-      var index = Wildcards.list.indexOf(wildcard);
-      Wildcards.list.splice(index, 1);
-    }
-
-    function removeField(wildcard, index) {
-      var removedField = wildcard.field.enum.splice(index, 1);
-      if (removedField === '*') {
-        delete wildcard.aggregate;
-      }
-      if (wildcard.field.enum.length === 0) {
-        removeItem(wildcard);
-      }
-    }
-
-    return Wildcards;
-  }]);
-
 'use strict';
 
 /**
@@ -5215,7 +5616,7 @@ angular.module('pcagnosticsviz')
         });
         dim = (dim<1)?0:(dim-1);
         var data;
-        if (dim==0)
+        if (dim==0||dim>2)
             data = Dataset.data;
         if( dim==1) {
             //PCAplot.calscagnotic(fields);
@@ -5223,7 +5624,7 @@ angular.module('pcagnosticsviz')
         }
 
         //if (PCAplot.mainfield != fields[0]){
-        if (PCAplot.dim != dim && dim <2){
+        if (PCAplot.dim !== dim && dim != 2){
             PCAplot.firstrun = true;
         }
         PCAplot.dim = dim;
@@ -5777,6 +6178,195 @@ angular.module('pcagnosticsviz').factory('NotifyingService', ["$rootScope", func
 'use strict';
 
 angular.module('pcagnosticsviz')
+  .controller('MainCtrl', ["$scope", "$document", "Spec", "Dataset", "Wildcards", "Config", "consts", "Chronicle", "Logger", "Bookmarks", "Modals", "FilterManager", "NotifyingService", "PCAplot", function($scope, $document, Spec, Dataset, Wildcards,  Config, consts, Chronicle, Logger, Bookmarks, Modals, FilterManager,NotifyingService,PCAplot) {
+    $scope.Spec = Spec;
+    $scope.contain = {"bi-plot":'Overview',
+        "div":[{key:'guideplot',val:'Exemplar'},
+            {key:'thumplot',val:'Feature pannel'},
+            {key:'slideGraph',val:'Mainview view'},
+            {key:'alternatives-pane',val:'Expanded views'},
+            {key:'guidemenu',val:'Feature pannel'}],
+        'h3':'headertext',
+        "body":'body'};
+    $scope.Dataset = Dataset;
+    $scope.Wildcards = Wildcards;
+    $scope.Config = Config;
+    $scope.Logger = Logger;
+    $scope.Bookmarks = Bookmarks;
+    $scope.FilterManager = FilterManager;
+    $scope.consts = consts;
+    $scope.showDevPanel = false;
+    $scope.embedded = !!consts.embeddedData;
+    //  $scope.Biplot = Biplot;
+    $scope.hideExplore = false;
+    $scope.fieldShow = true;
+    $scope.WildcardsShow = false;
+    $scope.PCAplot= PCAplot;
+    $scope.showEncoding = false;
+    $scope.showExtraGuide = false;
+    $scope.themeDrak = false;
+    $scope.showvideo = true;
+      $scope.fieldAdd = function(fieldDef) {
+          Pills.add(fieldDef);
+      };
+    $scope.toggleHideExplore = function() {
+      $scope.hideExplore = !$scope.hideExplore;
+      if ($scope.hideExplore) {
+        Logger.logInteraction(Logger.actions.TOGGLE_HIDE_ALTERNATIVES, Spec.chart.shorthand);
+      } else {
+        Logger.logInteraction(Logger.actions.TOGGLE_SHOW_ALTERNATIVES, Spec.chart.shorthand);
+      }
+    };
+
+    $scope.alternativeType = null;
+    $scope.setAlternativeType = function(type, automatic) {
+      $scope.alternativeType = type;
+      if (!automatic) {
+        $scope.hideExplore = false;
+        Logger.logInteraction(Logger.actions.TOGGLE_SHOW_ALTERNATIVES, Spec.chart.shorthand);
+        Logger.logInteraction(Logger.actions.SET_ALTERNATIVES_TYPE, type, {
+          shorthand: Spec.chart.shorthand
+        });
+      }
+    };
+
+
+    // log event
+  $scope.onMouseOverLog = function ($event) {
+      var regionAction =undefined;
+      $event.originalEvent.path.find(function(d) {
+          if (d.tagName.toLowerCase()=='div') {
+              var temp = $scope.contain['div'].find(function(c){return d.classList.contains(c.key)});
+              regionAction = (temp==undefined)?undefined:temp.val;
+              return temp;
+          }
+          else{
+              regionAction = $scope.contain[d.tagName.toLowerCase()];
+                return regionAction;
+          }});
+      if (regionAction!='body')
+          Logger.logInteraction(Logger.actions.MOUSE_OVER,regionAction, {val:{region:regionAction,
+                  position: {screenX:$event.screenX,
+                      screenY: $event.screenY,}},time:new Date()});
+  };
+     // end log
+    $scope.scrollToTop = function() {
+      $document.find('.vis-pane-container').scrollTop(0);
+    };
+
+    $scope.groupByChanged = function() {
+      Logger.logInteraction(Logger.actions.GROUP_BY_CHANGED, Spec.spec.groupBy);
+    };
+    $scope.autoAddCountChanged = function() {
+      Logger.logInteraction(Logger.actions.AUTO_ADD_COUNT_CHANGED, Spec.spec.autoAddCount);
+    };
+
+    $scope.$watch('Spec.alternatives', function(alternatives) {
+      for (var i = 0 ; i < alternatives.length; i++) {
+        if ($scope.alternativeType === alternatives[i].type) {
+          return;
+        }
+      }
+      // at this point we don't have the suggestion type available, thus reset
+      $scope.setAlternativeType(null, true);
+    });
+
+      $scope.$watch(function(){
+          return PCAplot.mspec;
+      },function(newmspec){
+         console.log('logging....');
+         console.log(newmspec);
+      });
+
+    // undo/redo support
+    $scope.canUndo = false;
+    $scope.canRedo = false;
+
+    // bookmark
+    $scope.showModal = function(modalId) {
+      Modals.open(modalId);
+      if (modalId == 'bookmark-list') {
+        Logger.logInteraction(Logger.actions.BOOKMARK_OPEN);
+      }
+    };
+
+    $scope.changetheme = function(){
+        $scope.themeDrak = !$scope.themeDrak;
+    };
+
+    if (Bookmarks.isSupported) {
+      // load bookmarks from local storage
+      Bookmarks.load();
+    }
+
+    if ($scope.embedded) {
+      // use provided data and we will hide the dataset selector
+      Dataset.dataset = {
+        values: consts.embeddedData,
+        name: 'embedded'
+      };
+    }
+
+      NotifyingService.subscribe($scope, function somethingChanged() {
+          //console.log("her");
+          $scope.$apply();
+      });
+
+    // initialize undo after we have a dataset
+    Dataset.update(Dataset.dataset).then(function() {
+      Config.updateDataset(Dataset.dataset);
+      if (consts.initialSpec) {
+          Spec.parseSpec(consts.initialSpec);
+          PCAplot.parseSpec(consts.initialSpec);
+      }
+      // PCAplot.plot(Dataset.data);
+      //Biplot.data = Dataset.data;
+      $scope.chron = Chronicle.record('Spec.spec', $scope, true,
+        ['Dataset.dataset', 'Config.config', 'FilterManager.filterIndex','PCAplot.prop.fieldDefs','PCAplot.prop.pos','PCAplot.prop.dim','PCAplot.prop.type','PCAplot.prop.mark']);
+      // $scope.chron = Chronicle.record(['PCAplot.prop.mspec','PCAplot.prop.type','PCAplot.prop.dim','PCAplot.prop.pos'], $scope, true,
+      //      ['Dataset.dataset', 'Config.config', 'FilterManager.filterIndex','Spec.spec']);
+      $scope.canUndoRedo = function() {
+        $scope.canUndo = $scope.chron.canUndo();
+        $scope.canRedo = $scope.chron.canRedo();
+      };
+      $scope.chron.addOnAdjustFunction($scope.canUndoRedo);
+      $scope.chron.addOnUndoFunction($scope.canUndoRedo);
+      $scope.chron.addOnRedoFunction($scope.canUndoRedo);
+
+      $scope.chron.addOnUndoFunction(function() {
+        Logger.logInteraction(Logger.actions.UNDO);
+        PCAplot.updateSpec(PCAplot.prop);
+      });
+      $scope.chron.addOnRedoFunction(function() {
+        Logger.logInteraction(Logger.actions.REDO);
+          PCAplot.updateSpec(PCAplot.prop);
+      });
+
+      $scope.choseByClick = function ($event) {
+          d3v4.select($event.currentTarget).select('.command.select.ng-scope').dispatch('click');
+          // d3v4.select(this).select('.command.select.ng-scope').dispatch('click');
+      };
+      angular.element($document).on('keydown', function(e) {
+        if (e.keyCode === 'Z'.charCodeAt(0) && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
+          $scope.chron.undo();
+          $scope.$digest();
+          return false;
+        } else if (e.keyCode === 'Y'.charCodeAt(0) && (e.ctrlKey || e.metaKey)) {
+          $scope.chron.redo();
+          $scope.$digest();
+          return false;
+        } else if (e.keyCode === 'Z'.charCodeAt(0) && (e.ctrlKey || e.metaKey) && e.shiftKey) {
+          $scope.chron.redo();
+          $scope.$digest();
+          return false;
+        }
+      });
+    });
+  }]);
+
+'use strict';
+
+angular.module('pcagnosticsviz')
   .service('Alternatives', ["ANY", "vl", "cql", "util", "Chart", "Dataset", function (ANY, vl, cql, util, Chart, Dataset) {
     var Alternatives = {
       alternativeEncodings: alternativeEncodings,
@@ -6125,199 +6715,10 @@ angular.module('pcagnosticsviz')
     return Alternatives;
   }]);
 
-'use strict';
-
-angular.module('pcagnosticsviz')
-  .controller('MainCtrl', ["$scope", "$document", "Spec", "Dataset", "Wildcards", "Config", "consts", "Chronicle", "Logger", "Bookmarks", "Modals", "FilterManager", "NotifyingService", "PCAplot", function($scope, $document, Spec, Dataset, Wildcards,  Config, consts, Chronicle, Logger, Bookmarks, Modals, FilterManager,NotifyingService,PCAplot) {
-    $scope.Spec = Spec;
-    $scope.contain = {"bi-plot":'Overview',
-        "div":[{key:'guideplot',val:'Exemplar'},
-            {key:'thumplot',val:'Feature pannel'},
-            {key:'slideGraph',val:'Mainview view'},
-            {key:'alternatives-pane',val:'Expanded views'},
-            {key:'guidemenu',val:'Feature pannel'}],
-        'h3':'headertext',
-        "body":'body'};
-    $scope.Dataset = Dataset;
-    $scope.Wildcards = Wildcards;
-    $scope.Config = Config;
-    $scope.Logger = Logger;
-    $scope.Bookmarks = Bookmarks;
-    $scope.FilterManager = FilterManager;
-    $scope.consts = consts;
-    $scope.showDevPanel = false;
-    $scope.embedded = !!consts.embeddedData;
-    //  $scope.Biplot = Biplot;
-    $scope.hideExplore = false;
-    $scope.fieldShow = true;
-    $scope.WildcardsShow = false;
-    $scope.PCAplot= PCAplot;
-    $scope.showEncoding = false;
-    $scope.showExtraGuide = false;
-    $scope.themeDrak = false;
-    $scope.showvideo = true;
-      $scope.fieldAdd = function(fieldDef) {
-          Pills.add(fieldDef);
-      };
-    $scope.toggleHideExplore = function() {
-      $scope.hideExplore = !$scope.hideExplore;
-      if ($scope.hideExplore) {
-        Logger.logInteraction(Logger.actions.TOGGLE_HIDE_ALTERNATIVES, Spec.chart.shorthand);
-      } else {
-        Logger.logInteraction(Logger.actions.TOGGLE_SHOW_ALTERNATIVES, Spec.chart.shorthand);
-      }
-    };
-
-    $scope.alternativeType = null;
-    $scope.setAlternativeType = function(type, automatic) {
-      $scope.alternativeType = type;
-      if (!automatic) {
-        $scope.hideExplore = false;
-        Logger.logInteraction(Logger.actions.TOGGLE_SHOW_ALTERNATIVES, Spec.chart.shorthand);
-        Logger.logInteraction(Logger.actions.SET_ALTERNATIVES_TYPE, type, {
-          shorthand: Spec.chart.shorthand
-        });
-      }
-    };
-
-
-    // log event
-  $scope.onMouseOverLog = function ($event) {
-      var regionAction =undefined;
-      $event.originalEvent.path.find(function(d) {
-          if (d.tagName.toLowerCase()=='div') {
-              var temp = $scope.contain['div'].find(function(c){return d.classList.contains(c.key)});
-              regionAction = (temp==undefined)?undefined:temp.val;
-              return temp;
-          }
-          else{
-              regionAction = $scope.contain[d.tagName.toLowerCase()];
-                return regionAction;
-          }});
-      if (regionAction!='body')
-          Logger.logInteraction(Logger.actions.MOUSE_OVER,regionAction, {val:{region:regionAction,
-                  position: {screenX:$event.screenX,
-                      screenY: $event.screenY,}},time:new Date()});
-  };
-     // end log
-    $scope.scrollToTop = function() {
-      $document.find('.vis-pane-container').scrollTop(0);
-    };
-
-    $scope.groupByChanged = function() {
-      Logger.logInteraction(Logger.actions.GROUP_BY_CHANGED, Spec.spec.groupBy);
-    };
-    $scope.autoAddCountChanged = function() {
-      Logger.logInteraction(Logger.actions.AUTO_ADD_COUNT_CHANGED, Spec.spec.autoAddCount);
-    };
-
-    $scope.$watch('Spec.alternatives', function(alternatives) {
-      for (var i = 0 ; i < alternatives.length; i++) {
-        if ($scope.alternativeType === alternatives[i].type) {
-          return;
-        }
-      }
-      // at this point we don't have the suggestion type available, thus reset
-      $scope.setAlternativeType(null, true);
-    });
-
-      $scope.$watch(function(){
-          return PCAplot.mspec;
-      },function(newmspec){
-         console.log('logging....');
-         console.log(newmspec);
-      });
-
-    // undo/redo support
-    $scope.canUndo = false;
-    $scope.canRedo = false;
-
-    // bookmark
-    $scope.showModal = function(modalId) {
-      Modals.open(modalId);
-      if (modalId == 'bookmark-list') {
-        Logger.logInteraction(Logger.actions.BOOKMARK_OPEN);
-      }
-    };
-
-    $scope.changetheme = function(){
-        $scope.themeDrak = !$scope.themeDrak;
-    };
-
-    if (Bookmarks.isSupported) {
-      // load bookmarks from local storage
-      Bookmarks.load();
-    }
-
-    if ($scope.embedded) {
-      // use provided data and we will hide the dataset selector
-      Dataset.dataset = {
-        values: consts.embeddedData,
-        name: 'embedded'
-      };
-    }
-
-      NotifyingService.subscribe($scope, function somethingChanged() {
-          //console.log("her");
-          $scope.$apply();
-      });
-
-    // initialize undo after we have a dataset
-    Dataset.update(Dataset.dataset).then(function() {
-      Config.updateDataset(Dataset.dataset);
-      if (consts.initialSpec) {
-          Spec.parseSpec(consts.initialSpec);
-          PCAplot.parseSpec(consts.initialSpec);
-      }
-      // PCAplot.plot(Dataset.data);
-      //Biplot.data = Dataset.data;
-      $scope.chron = Chronicle.record('Spec.spec', $scope, true,
-        ['Dataset.dataset', 'Config.config', 'FilterManager.filterIndex','PCAplot.prop.fieldDefs','PCAplot.prop.pos','PCAplot.prop.dim','PCAplot.prop.type','PCAplot.prop.mark']);
-      // $scope.chron = Chronicle.record(['PCAplot.prop.mspec','PCAplot.prop.type','PCAplot.prop.dim','PCAplot.prop.pos'], $scope, true,
-      //      ['Dataset.dataset', 'Config.config', 'FilterManager.filterIndex','Spec.spec']);
-      $scope.canUndoRedo = function() {
-        $scope.canUndo = $scope.chron.canUndo();
-        $scope.canRedo = $scope.chron.canRedo();
-      };
-      $scope.chron.addOnAdjustFunction($scope.canUndoRedo);
-      $scope.chron.addOnUndoFunction($scope.canUndoRedo);
-      $scope.chron.addOnRedoFunction($scope.canUndoRedo);
-
-      $scope.chron.addOnUndoFunction(function() {
-        Logger.logInteraction(Logger.actions.UNDO);
-        PCAplot.updateSpec(PCAplot.prop);
-      });
-      $scope.chron.addOnRedoFunction(function() {
-        Logger.logInteraction(Logger.actions.REDO);
-          PCAplot.updateSpec(PCAplot.prop);
-      });
-
-      $scope.choseByClick = function ($event) {
-          d3v4.select($event.currentTarget).select('.command.select.ng-scope').dispatch('click');
-          // d3v4.select(this).select('.command.select.ng-scope').dispatch('click');
-      };
-      angular.element($document).on('keydown', function(e) {
-        if (e.keyCode === 'Z'.charCodeAt(0) && (e.ctrlKey || e.metaKey) && !e.shiftKey) {
-          $scope.chron.undo();
-          $scope.$digest();
-          return false;
-        } else if (e.keyCode === 'Y'.charCodeAt(0) && (e.ctrlKey || e.metaKey)) {
-          $scope.chron.redo();
-          $scope.$digest();
-          return false;
-        } else if (e.keyCode === 'Z'.charCodeAt(0) && (e.ctrlKey || e.metaKey) && e.shiftKey) {
-          $scope.chron.redo();
-          $scope.$digest();
-          return false;
-        }
-      });
-    });
-  }]);
-
-angular.module("pcagnosticsviz").run(["$templateCache", function($templateCache) {$templateCache.put("app/main/main.html","<div ng-controller=\"MainCtrl\" ng-class=\"{light: themeDrak}\" class=\"flex-root vflex full-width full-height\" ng-mousedown=\"onMouseDownLog($event)\" ng-mouseenter=\"onMouseEnterLog($event)\" ng-mouseover=\"onMouseOverLog($event)\"><div class=\"full-width no-shrink shadow\"><div class=\"card top-card no-right-margin no-top-margin\"><div class=\"hflex\" style=\"justify-content: space-between;\"><div class=\"pane\" style=\"display: inline-flex;\"><div id=\"logo\"></div></div><div class=\"pane\"><div class=\"controls\"><a class=\"command\" ng-click=\"chron.undo()\" ng-class=\"{disabled: !canUndo}\"><i class=\"fa fa-undo\"></i> Undo</a> <a class=\"command\" ng-click=\"chron.redo()\" ng-class=\"{disabled: !canRedo}\"><i class=\"fa fa-repeat\"></i> Redo</a></div></div><div class=\"pane\" style=\"display: inline-flex;\"><div id=\"processDisplay\" ng-hide=\"PCAplot.calProcess==0\"><h4>Calculating {{PCAplot.calculateState}}....</h4><md-progress-linear class=\"md-theme\" md-mode=\"determinate\" value=\"{{PCAplot.calProcess}}\"></md-progress-linear></div><div class=\"controls\"><a class=\"command\" ng-if=\"themeDrak\" ng-click=\"changetheme()\"><i class=\"fa fa-moon-o\"></i> Dark</a> <a class=\"command\" ng-if=\"!themeDrak\" ng-click=\"changetheme()\"><i class=\"fa fa-sun-o\"></i> Light</a></div></div></div></div><alert-messages></alert-messages></div><div class=\"hflex full-width main-panel grow-1\"><div class=\"pane data-pane noselect\"><div class=\"card no-top-margin data-card abs-100 modifedside\"><div class=\"sidebar-header\" ng-if=\"!embedded\"><dataset-selector class=\"right\"></dataset-selector><div class=\"current-dataset\" title=\"{{Dataset.currentDataset.name}}\"><h2 style=\"display:inline-block; margin:0;\">Data</h2><i class=\"fa fa-database\"></i> <span class=\"dataset-name\">{{Dataset.currentDataset.name}}</span></div><div style=\"color:var(--fontColor);\"><span class=\"dataset-info\">Data contains <strong>{{Dataset.data.length}}</strong> instances and <strong>{{Dataset.schema.fieldSchemas.length}}</strong> variables</span></div></div><h3>Overview</h3><bi-plot error=\"PCAplot.error.code==1\"></bi-plot><h3>Exemplar plots</h3><div class=\"scroll-y-nox scroll-y\"><vl-plot-group ng-class=\"{square: PCAplot.dim}\" ng-if=\"PCAplot.chart\" class=\"main-vl-plot-group card no-shrink guideplot\" ng-repeat=\"chart in PCAplot.charts\" ng-click=\"PCAplot.prop2spec(chart.prop)\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"true\" show-axis-prop=\"false\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\" style=\"margin-top: 0px; margin-bottom: 3px;\"></vl-plot-group><div class=\"hflex full-width\"><h3>Variables</h3><div class=\"header-drop active\"><i class=\"fa fa-caret-down droplist\" ng-click=\"fieldShow = !fieldShow\"></i></div></div><div ng-show=\"fieldShow\"><schema-list field-defs=\"Dataset.schema.fieldSchemas\" order-by=\"Dataset.fieldOrder\" show-count=\"true\" filter-manager=\"FilterManager\" show-add=\"true\"></schema-list></div><div ng-show=\"WildcardsShow\"><schema-list field-defs=\"Wildcards.list\" show-add=\"true\" show-drop=\"true\"></schema-list></div></div></div>Ma</div><div class=\"pane vis-pane\"><div class=\"vis-pane-container abs-100\" ng-class=\"{\'scroll-y\': !hideExplore || !Spec.isSpecific, \'no-scroll-y\': hideExplore && Spec.isSpecific}\"><div class=\"mainareacustom full-width\"><div class=\"pane encoding-pane\" style=\"min-height: 200px;\"><shelves spec=\"Spec.spec\" filter-manager=\"FilterManager\" preview=\"false\" support-any=\"true\" ng-class=\"shelvescustom\" prop=\"PCAplot.prop\" custommarks=\"PCAplot.marks\" props=\"PCAplot.types\" updatefunc=\"PCAplot.updateSpec\" hidecustom=\"PCAplot.prop&&Spec.isSpecific && !Spec.isEmptyPlot\"></shelves><shelves class=\"preview\" ng-show=\"Spec.previewedSpec\" spec=\"Spec.previewedSpec || Spec.emptySpec\" preview=\"true\" support-any=\"true\"></shelves></div><slide-graph ng-if=\"PCAplot.prop.charts && Spec.isSpecific && !Spec.isEmptyPlot\" charts=\"PCAplot.prop.charts\" pos=\"PCAplot.prop.pos\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></slide-graph></div><div class=\"alternatives-pane card navigation\" ng-class=\"{collapse: hideExplore}\" ng-if=\"PCAplot.prop&&Spec.isSpecific && !Spec.isEmptyPlot\" style=\"margin-top: 0px;\"><guide-menu prop=\"PCAplot.prop\" priority=\"10\" marks=\"PCAplot.marks\" props=\"PCAplot.types\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></guide-menu></div></div></div><div class=\"pane guidemenu grow-1\" ng-if=\"showExtraGuide||PCAplot.prop\"><div class=\"alternatives-pane card\" ng-class=\"{collapse: hideExplore}\" ng-if=\"Spec.isSpecific && !Spec.isEmptyPlot\"><div class=\"alternatives-header\"><div class=\"right alternatives-jump\"><a class=\"toggle-hide-explore\" ng-click=\"toggleHideExplore()\"><span ng-show=\"hideExplore\">Show <i class=\"fa fa-toggle-up\"></i></span> <span ng-show=\"!hideExplore\">Hide <i class=\"fa fa-toggle-down\"></i></span></a></div><h2>Expanded views</h2></div><div class=\"alternatives-content scroll-y\" ng-if=\"!hideExplore\"><vl-plot-group-list ng-repeat=\"alternative in PCAplot.alternatives\" ng-if=\"alternative.charts.length > 0 && (!$parent.alternativeType || $parent.alternativeType === alternative.type)\" id=\"alternatives-{{alternative.type}}\" list-title=\"alternative.title\" charts=\"alternative.charts\" enable-pills-preview=\"true\" priority=\"$index * 2000\" initial-limit=\"alternative.limit || null\" post-select-action=\"$parent.scrollToTop()\" show-query-select=\"true\" query=\"alternative.query\" show-bookmark=\"false\" <!--ng-click=\"choseByClick($event)\" --=\"\">></vl-plot-group-list></div></div></div></div><div class=\"hflex full-width dev-panel\" ng-if=\"showDevPanel\"><div class=\"pane\" ng-show=\"consts.logToWebSql\"><div class=\"card\"><div>userid: {{Logger.userid}}</div><button ng-click=\"Logger.clear()\">Clear logs</button><br><button ng-click=\"Logger.export()\">Download logs</button></div></div><div class=\"pane config-pane\"><div class=\"card scroll-y abs-100\"><configuration-editor></configuration-editor></div></div><div class=\"pane vl-pane\"><cql-query-editor></cql-query-editor></div><div class=\"pane vg-pane\"><vg-spec-editor></vg-spec-editor></div></div><bookmark-list highlighted=\"Fields.highlighted\" post-select-action=\"scrollToTop\"></bookmark-list><dataset-modal></dataset-modal></div>");
+angular.module("pcagnosticsviz").run(["$templateCache", function($templateCache) {$templateCache.put("app/main/main.html","<div ng-controller=\"MainCtrl\" ng-class=\"{light: themeDrak}\" class=\"flex-root vflex full-width full-height\" ng-mousedown=\"onMouseDownLog($event)\" ng-mouseenter=\"onMouseEnterLog($event)\" ng-mouseover=\"onMouseOverLog($event)\"><div class=\"full-width no-shrink shadow\"><div class=\"card top-card no-right-margin no-top-margin\"><div class=\"hflex\" style=\"justify-content: space-between;\"><div class=\"pane\" style=\"display: inline-flex;\"><div id=\"logo\"></div></div><div class=\"pane\"><div class=\"controls\"><a class=\"command\" ng-click=\"chron.undo()\" ng-class=\"{disabled: !canUndo}\"><i class=\"fa fa-undo\"></i> Undo</a> <a class=\"command\" ng-click=\"chron.redo()\" ng-class=\"{disabled: !canRedo}\"><i class=\"fa fa-repeat\"></i> Redo</a></div></div><div class=\"pane\" style=\"display: inline-flex;\"><div id=\"processDisplay\" ng-hide=\"PCAplot.calProcess==0\"><h4>Calculating {{PCAplot.calculateState}}....</h4><md-progress-linear class=\"md-theme\" md-mode=\"determinate\" value=\"{{PCAplot.calProcess}}\"></md-progress-linear></div><div class=\"controls\"><a class=\"command\" ng-if=\"themeDrak\" ng-click=\"changetheme()\"><i class=\"fa fa-moon-o\"></i> Dark</a> <a class=\"command\" ng-if=\"!themeDrak\" ng-click=\"changetheme()\"><i class=\"fa fa-sun-o\"></i> Light</a></div></div></div></div><alert-messages></alert-messages></div><div class=\"hflex full-width main-panel grow-1\"><div class=\"pane data-pane noselect\"><div class=\"card no-top-margin data-card abs-100 modifedside\"><div class=\"sidebar-header\" ng-if=\"!embedded\"><dataset-selector class=\"right\"></dataset-selector><div class=\"current-dataset\" title=\"{{Dataset.currentDataset.name}}\"><h2 style=\"display:inline-block; margin:0;\">Data</h2><i class=\"fa fa-database\"></i> <span class=\"dataset-name\">{{Dataset.currentDataset.name}}</span></div><div style=\"color:var(--fontColor);\"><span class=\"dataset-info\">Data contains <strong>{{Dataset.data.length}}</strong> instances and <strong>{{Dataset.schema.fieldSchemas.length}}</strong> variables</span></div></div><h3>Overview</h3><bi-plot error=\"PCAplot.error.code==1\" hidesvg=\"false\" <!--hidecanvas=\"PCAplot.dim<3\" --=\"\">></bi-plot><h3>Exemplar plots</h3><div class=\"scroll-y-nox scroll-y\"><vl-plot-group ng-class=\"{square: PCAplot.dim}\" ng-if=\"PCAplot.chart\" class=\"main-vl-plot-group card no-shrink guideplot\" ng-repeat=\"chart in PCAplot.charts\" ng-click=\"PCAplot.prop2spec(chart.prop)\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"true\" show-axis-prop=\"false\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\" style=\"margin-top: 0px; margin-bottom: 3px;\"></vl-plot-group><div class=\"hflex full-width\"><h3>Variables</h3><div class=\"header-drop active\"><i class=\"fa fa-caret-down droplist\" ng-click=\"fieldShow = !fieldShow\"></i></div></div><div ng-show=\"fieldShow\"><schema-list field-defs=\"Dataset.schema.fieldSchemas\" order-by=\"Dataset.fieldOrder\" show-count=\"true\" filter-manager=\"FilterManager\" show-add=\"true\"></schema-list></div><div ng-show=\"WildcardsShow\"><schema-list field-defs=\"Wildcards.list\" show-add=\"true\" show-drop=\"true\"></schema-list></div></div></div>Ma</div><div class=\"pane vis-pane\"><div class=\"vis-pane-container abs-100\" ng-class=\"{\'scroll-y\': !hideExplore || !Spec.isSpecific, \'no-scroll-y\': hideExplore && Spec.isSpecific}\"><div class=\"mainareacustom full-width\"><div class=\"pane encoding-pane\" style=\"min-height: 200px;\"><shelves spec=\"Spec.spec\" filter-manager=\"FilterManager\" preview=\"false\" support-any=\"true\" ng-class=\"shelvescustom\" prop=\"PCAplot.prop\" custommarks=\"PCAplot.marks\" props=\"PCAplot.types\" updatefunc=\"PCAplot.updateSpec\" hidecustom=\"PCAplot.prop&&Spec.isSpecific && !Spec.isEmptyPlot\"></shelves><shelves class=\"preview\" ng-show=\"Spec.previewedSpec\" spec=\"Spec.previewedSpec || Spec.emptySpec\" preview=\"true\" support-any=\"true\"></shelves></div><slide-graph ng-if=\"PCAplot.prop.charts && Spec.isSpecific && !Spec.isEmptyPlot\" charts=\"PCAplot.prop.charts\" pos=\"PCAplot.prop.pos\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></slide-graph></div><div class=\"alternatives-pane card navigation\" ng-class=\"{collapse: hideExplore}\" ng-if=\"PCAplot.prop&&Spec.isSpecific && !Spec.isEmptyPlot\" style=\"margin-top: 0px;\"><guide-menu prop=\"PCAplot.prop\" priority=\"10\" marks=\"PCAplot.marks\" props=\"PCAplot.types\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></guide-menu></div></div></div><div class=\"pane guidemenu grow-1\" ng-if=\"showExtraGuide||PCAplot.prop\"><div class=\"alternatives-pane card\" ng-class=\"{collapse: hideExplore}\" ng-if=\"Spec.isSpecific && !Spec.isEmptyPlot\"><div class=\"alternatives-header\"><div class=\"right alternatives-jump\"><a class=\"toggle-hide-explore\" ng-click=\"toggleHideExplore()\"><span ng-show=\"hideExplore\">Show <i class=\"fa fa-toggle-up\"></i></span> <span ng-show=\"!hideExplore\">Hide <i class=\"fa fa-toggle-down\"></i></span></a></div><h2>Expanded views</h2></div><div class=\"alternatives-content scroll-y\" ng-if=\"!hideExplore\"><vl-plot-group-list ng-repeat=\"alternative in PCAplot.alternatives\" ng-if=\"alternative.charts.length > 0 && (!$parent.alternativeType || $parent.alternativeType === alternative.type)\" id=\"alternatives-{{alternative.type}}\" list-title=\"alternative.title\" charts=\"alternative.charts\" enable-pills-preview=\"true\" priority=\"$index * 2000\" initial-limit=\"alternative.limit || null\" post-select-action=\"$parent.scrollToTop()\" show-query-select=\"true\" query=\"alternative.query\" show-bookmark=\"false\" <!--ng-click=\"choseByClick($event)\" --=\"\">></vl-plot-group-list></div></div></div></div><div class=\"hflex full-width dev-panel\" ng-if=\"showDevPanel\"><div class=\"pane\" ng-show=\"consts.logToWebSql\"><div class=\"card\"><div>userid: {{Logger.userid}}</div><button ng-click=\"Logger.clear()\">Clear logs</button><br><button ng-click=\"Logger.export()\">Download logs</button></div></div><div class=\"pane config-pane\"><div class=\"card scroll-y abs-100\"><configuration-editor></configuration-editor></div></div><div class=\"pane vl-pane\"><cql-query-editor></cql-query-editor></div><div class=\"pane vg-pane\"><vg-spec-editor></vg-spec-editor></div></div><bookmark-list highlighted=\"Fields.highlighted\" post-select-action=\"scrollToTop\"></bookmark-list><dataset-modal></dataset-modal></div>");
 $templateCache.put("components/configurationeditor/configurationeditor.html","<form><pre>{{ Config.config | compactJSON }}</pre></form>");
 $templateCache.put("components/cqlQueryEditor/cqlQueryEditor.html","<div class=\"card scroll-y abs-100 vflex\"><div><div class=\"right command\"><a ui-zeroclip=\"\" zeroclip-model=\"Spec.query | compactJSON\">Copy</a></div><h3>CompassQL Query</h3></div><textarea class=\"cqlquery flex-grow-1 full-height\" json-input=\"\" type=\"text\" ng-model=\"Spec.cleanQuery\"></textarea></div>");
-$templateCache.put("components/d3-biplot/bi-plot.html","<h4 style=\"position: absolute; color: black; width: 100%; text-align: center;\" ng-if=\"error\">Can\'t display the corresponding bi-plot</h4><svg id=\"bi-plot\" width=\"100%\" class=\"biplot\"><g id=\"bi-plot2\"></g><rect class=\"overlay\"></rect><g id=\"bi-plot-g\"><g id=\"bi-plot-axis\"></g><g id=\"bi-plot-point\"></g></g></svg>");
+$templateCache.put("components/d3-biplot/bi-plot.html","<h4 style=\"position: absolute; color: black; width: 100%; text-align: center;\" ng-if=\"error\">Can\'t display the corresponding bi-plot</h4><svg id=\"bi-plot\" width=\"100%\" class=\"biplot\" ng-hide=\"hideSvg\"><g id=\"bi-plot2\"></g><rect class=\"overlay\"></rect><g id=\"bi-plot-g\"><g id=\"bi-plot-axis\"></g><g id=\"bi-plot-point\"></g></g></svg>");
 $templateCache.put("components/d3-guideplot/gplot.html","<div class=\"gplot\" ng-click=\"explore()\"><svg class=\"gplotSvg\" id=\"gplot{{pcaDef}}\"></svg></div>");
 $templateCache.put("components/d3-guideplot/guide-plot.html","<div id=\"guide-plot-group\" class=\"guideplot\"><g-plot ng-repeat=\"pcaDef in pcaDefs\" pca-def=\"pcaDef\" id=\"{{pcaDef}}\"></g-plot></div>");
 $templateCache.put("components/d3-slidegraph/slide-com.html","<li class=\"item wrap\"><vl-plot-group ng-if=\"chart!=undefined\" class=\"item\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"false\" show-axis-prop=\"false\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\"></vl-plot-group></li>");
