@@ -23,8 +23,8 @@
         </nav>
     </div>
 </div>
-<center><video controls width="95%" height="800" frameborder="0" allowfullscreen>
-    <source src="a/video/HMaViz_video_final.mp4" type="video/mp4"> </video></center>
+<center><iframe  controls width="95%" height="800" src="https://www.youtube.com/embed/yYsoBvBr1ng" frameborder="0" allowfullscreen>
+     </iframe ></center>
 
 <div class="footer">
     <span class="right">&copy; Last revised: May 1, 2019</span>
@@ -32,14 +32,15 @@
 </div>
 </div>
 <script type="text/javascript">
-    $(document).ready(function(){
-        var videoLoader = $('video source');
-        videoLoader.on('error',function(e){
-            console.log(e)
-            videoLoader.attr('src',"https://media.githubusercontent.com/media/iDataVisualizationLab/HMaViz/master/video/HMaViz_video_final.mp4");
-            $('video')[0].load();
-        })
-    })
+    // $(document).ready(function(){
+    //     var videoLoader = $('video source');
+    //     videoLoader.on('error',function(e){
+    //         console.log(e)
+    //         videoLoader.attr('src',"https://www.youtube.com/watch?v=yYsoBvBr1ng&feature=youtu.be");
+    //         $('video')[0].load();
+    //         videoLoader.on('error',null);
+    //     })
+    // })
 </script>
 </body>
 </html>
