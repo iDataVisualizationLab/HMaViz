@@ -467,7 +467,7 @@ angular.module('pcagnosticsviz')
                     generalattr.svg.attr('viewBox',[0,0,generalattr.width,generalattr.height].join(' '));
                     generalattr.g = d3v4.select('.thum').select('.oneDimentional');
                     generalattr.g.select('.twoDimentional').selectAll('*').remove();
-                    var colorArray = ["#9cb5a0","#aec7b2","#c5d6c6","#e6e6e6","#e6e6d8","#e6d49c","#e6b061","#e6a650","#e67532","#ED5F3B"];
+                    var colorArray = PCAplot.colorthem.rainbow;
                     var level= colorArray.length;
                     var domain = d3.range(level).map(function(d) {return d/(level-1)});
 
@@ -917,6 +917,7 @@ angular.module('pcagnosticsviz')
                         _cube.order = i;
                         _cube.fields = pos;
                         _cube.height = h;
+                        _cube.value = d.vlSpec.config.typer.val[d.vlSpec.config.typer.type];
                         cubesData.push(_cube);
                     });
 
@@ -974,10 +975,10 @@ angular.module('pcagnosticsviz')
                         let ce = cubes.enter().append("g")
                             .attr("class", "cube bigObject")
                             .attr('fill', function (d) {
-                                return maincolor(d[0].x/j);
+                                return generalattr.colorScale(d.value);
                             })
                             .attr('stroke', function (d) {
-                                return d3v4.color(maincolor(d[0].x/j)).darker(2);
+                                return d3v4.color(generalattr.colorScale(d.value)).darker(2);
                             })
                             .merge(cubes)
                             .sort(cubes3D.sort)
@@ -3397,6 +3398,9 @@ angular.module('pcagnosticsviz')
             calProcess: 0,
             calculateState: null
         };
+        PCAplot.colorthem = {
+            rainbow: ["#9cb5a0","#aec7b2","#c5d6c6","#e6e6e6","#e6e6d8","#e6d49c","#e6b061","#e6a650","#e67532","#ED5F3B"],
+        }
         PCAplot.mark2plot = mark2plot;
         var abtractionLevel =['Individual instances','Regular binning','Data-dependent binning','Abtracted'];
         var support =[{
@@ -3507,8 +3511,13 @@ angular.module('pcagnosticsviz')
                         data.forEach(function (d) {
 
                             if (d.scag.invalid !== 1) {
-                                idlabel.push([d.fieldDefs[0].field, d.fieldDefs[1].field]);
-                                newdata.push(d.scag);
+                                idlabel.push(d.label);
+                                let tempData = {};
+                                for (var v in d.scag){
+                                    tempData[v] = d.scag[v];
+                                }
+                                tempData.label = d.label||[d.fieldDefs[0].field, d.fieldDefs[1].field];
+                                newdata.push(tempData);
                             }
                         });
                         data = newdata
@@ -3614,7 +3623,7 @@ angular.module('pcagnosticsviz')
                         // console.log(brands);
 
 
-                        data.forEach(function (d, i) {
+                            data.forEach(function (d, i) {
                             var xy = rotate(d.pc1, d.pc2, angle);
                             d.pc1 = xy.x;
                             d.pc2 = xy.y;
@@ -4338,6 +4347,7 @@ angular.module('pcagnosticsviz')
                         return a[type]<b[type]?1:-1;
                     });
                     var obj = {};
+                    console.log(dataref);
                     dataref.find ((topp)=>{
                         var topitem = topp.label;
                         if (objects[topitem[0]] === undefined || objects[topitem[0]][topitem[1]]=== undefined){
@@ -5636,7 +5646,15 @@ angular.module('pcagnosticsviz')
                         invalid: 1,
                     };
                     combination.forEach(c=>{
-                        const curretn_scag = (dataschema._fieldSchemaIndex_selected[c[0]].scagStats[c[1]]||dataschema._fieldSchemaIndex_selected[c[0]].scagStats[c[1]]).scag;
+                        // recalculate scag if needed
+
+                        let curretn_scag = (dataschema._fieldSchemaIndex_selected[c[0]].scagStats[c[1]]||{}).scag;
+                        if (curretn_scag === undefined)
+                            curretn_scag = dataschema._fieldSchemaIndex_selected[c[1]].scagStats[c[0]].scag;
+                        console.log('#####################');
+                        console.log(c);
+                        console.log(curretn_scag);
+                        console.log(results);
                         results.outlying = Math.max(curretn_scag.outlying,results.outlying);
                         results.skewed = Math.max(curretn_scag.skewed,results.skewed);
                         results.sparse = Math.max(curretn_scag.sparse,results.sparse);
@@ -5783,7 +5801,7 @@ angular.module('pcagnosticsviz')
 
             if (PCAplot.dim===index) {
                 PCAplot.firstrun =true;
-                PCAplot.plot(index?getData(index).map(d=>d):Dataset.data, index);
+                PCAplot.plot((index>0)?getData(1).map(d=>d):Dataset.data, index==2?1:index);
             }
             try {
                 PCAplot.updateSpec(PCAplot.prop);
