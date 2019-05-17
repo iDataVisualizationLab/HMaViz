@@ -92,20 +92,6 @@ angular.module('pcagnosticsviz', [
 
 'use strict';
 
-angular.module('pcagnosticsviz')
-  .directive('vgSpecEditor', ["Spec", function(Spec) {
-    return {
-      templateUrl: 'components/vgSpecEditor/vgSpecEditor.html',
-      restrict: 'E',
-      scope: {},
-      link: function postLink(scope /*, element, attrs*/) {
-        scope.Spec = Spec;
-      }
-    };
-  }]);
-
-'use strict';
-
 /**
  * @ngdoc directive
  * @name pcagnosticsviz.directive:nullFilterDirective
@@ -128,6 +114,20 @@ angular.module('pcagnosticsviz')
       }
     };
   }]);
+'use strict';
+
+angular.module('pcagnosticsviz')
+  .directive('vgSpecEditor', ["Spec", function(Spec) {
+    return {
+      templateUrl: 'components/vgSpecEditor/vgSpecEditor.html',
+      restrict: 'E',
+      scope: {},
+      link: function postLink(scope /*, element, attrs*/) {
+        scope.Spec = Spec;
+      }
+    };
+  }]);
+
 'use strict';
 
 angular.module('pcagnosticsviz')
@@ -560,14 +560,6 @@ angular.module('pcagnosticsviz')
                     const r = PCAplot.orderVariables($scope.prop.type);
                     let domainByTrait = r.domainByTrait;
                     let traits = r.traits;
-
-                    // traits.forEach(function(trait) {
-                    //     trait.value = d3.sum($scope.prop.previewcharts.filter(pc=> pc.fieldSet.find(f=> f.field === trait.text) !== undefined ).map(d=>Math.abs(d.vlSpec.config.typer.val[d.vlSpec.config.typer.type])));
-                    //     domainByTrait[trait] = [Dataset.schema.fieldSchema(trait.text).stats.min,Dataset.schema.fieldSchema(trait.text).stats.max];
-                    //
-                    // });
-                    //
-                    // traits.sort((a,b)=>b.value-a.value);
 
                     generalattr.xScale = d3v4.scaleBand().paddingInner(0.05).paddingOuter(0).range([0, generalattr.w()]).round(true).domain(traits.map(d=>d.text));
                     generalattr.yScale = d3v4.scaleBand().paddingInner(0.05).paddingOuter(0).range([0, generalattr.h()]).round(true).domain(traits.map(d=>d.text));
@@ -5758,12 +5750,13 @@ angular.module('pcagnosticsviz')
         // function collect all scag
         function go2Level (s,collection,level){
             if (level && s.scagStats !==undefined){
-                Object.keys(s.scagStats).forEach((subf)=>
+                _.intersection(Object.keys(s.scagStats) , Dataset.schema._fieldSchemas_selected.map(d=>d.field)).forEach((subf)=>
                     go2Level (s.scagStats[subf],collection,level-1));
             }else {
-                if (s.label) {
+                if (s.label&&s.label.filter(d=>d).length ===s.label.length) {
                     //reach to destination
                     collection.push({
+                        label: s.label,
                         fieldDefs: s.label.map(d => Dataset.schema.fieldSchema(d)),
                         scag: s.scag
                     });
@@ -5781,7 +5774,8 @@ angular.module('pcagnosticsviz')
                         go2Level(fd, PCAplot.data[index?index:1], index?index:1);
                     });
                     // if (PCAplot.dim===index-1)
-                    PCAplot.state = states.GENERATE_ALTERNATIVE;
+                    PCAplot.state = states.GENERATE_GUIDE;
+                    // PCAplot.state = states.GENERATE_ALTERNATIVE;
                     if (index===0)
                         PCAplot.data[0] = Dataset.schema._fieldSchemas_selected;
                     update_dataref(index?index:1);
@@ -6032,7 +6026,7 @@ angular.module('pcagnosticsviz')
                     PCAplot.calProcess = progress.progress*100;
                     // Process results
                     var label_stack = [progress.fields.shift()];
-                    var source = Dataset.schema._fieldSchemaIndex_selected[label_stack[0]];
+                    var source = Dataset.schema._fieldSchemaIndex[label_stack[0]];
                     if (source.scagStats=== undefined) {
                         source.scagStats = {};
                     }
