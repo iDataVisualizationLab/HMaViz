@@ -283,7 +283,7 @@ angular.module('pcagnosticsviz')
                         let chose = $scope.marks.find(d=> d.mark === $scope.prop.mark).level;
                         return  chose;
                     }else {
-                        $scope.recommendLevel = size2type(Dataset.data.length,Dataset.schema._fieldSchemas.length);
+                        $scope.recommendLevel = size2type(Dataset.data.length,Dataset.schema._fieldSchemas_selected.length);
                         let chose = $scope.marks.find(d=> d.mark === $scope.prop.mark).level;
                         $scope.confict = chose < $scope.recommendLevel;
                         let finalDecision = ($scope.confict&&!$scope.byPass)?$scope.recommendLevel:chose;
@@ -730,7 +730,7 @@ angular.module('pcagnosticsviz')
                         var fieldset = spec.fieldSet.map(function(d){return d.field});
                         fieldset.sort((a,b)=>traits.indexOf(traits.find(d=>d.text ===a))-traits.indexOf(traits.find(d=>d.text ===b)));
                         // check valid
-                        const fieldValue = fieldset.map(f=>Dataset.schema._fieldSchemaIndex[f]);
+                        const fieldValue = fieldset.map(f=>Dataset.schema._fieldSchemaIndex_selected[f]);
                         // if (fieldValue[0].stats.distinct<2||fieldValue[1].stats.distinct<2)
                         //     return [];
                         var points =  Dataset.data.map(function(d,i){
@@ -780,12 +780,6 @@ angular.module('pcagnosticsviz')
                             return binr;
                         }
                         return points;
-                    }
-
-                    function getIDfields (fields){
-                        let ff = fields.map(f=> {let d ={id:Object.keys (Dataset.schema._fieldSchemaIndex).indexOf(f),name:f}; return d});
-                        ff.sort((a,b)=>a.id-b.id);
-                        return ff.map(d=>d.name).join('|');
                     }
 
 
@@ -2774,8 +2768,6 @@ angular.module('pcagnosticsviz')
      */
     Spec.update = function(spec) {
         if (Spec.previewedSpec!=null && !Spec.isSelected) return Spec;
-        try {PCAplot.calscagnotic(1);}
-        catch(e){}
         var dim = 0;
         var fields = [];
         // const keys = Object.keys(vlSchema.definitions.UnitEncoding.properties).slice(0,4);
@@ -2786,22 +2778,9 @@ angular.module('pcagnosticsviz')
             }
         });
         dim = (dim<1)?0:(dim-1);
-        var data;
-        if (dim==0||dim>2)
-            data = Dataset.data;
-        if( dim==1) {
-            //PCAplot.calscagnotic(fields);
-            data = PCAplot.requestupdate();
-        }
-
-        //if (PCAplot.mainfield != fields[0]){
-        if (PCAplot.dim !== dim && dim != 2){
-            PCAplot.firstrun = true;
-        }
-        PCAplot.dim = dim;
-        PCAplot.plot(data,dim);
+        PCAplot.requestupdate(dim);
         if(fields.length)
-        spec = PCAplot.checkRender(spec,fields);
+          spec = PCAplot.checkRender(spec,fields);
         spec = _.cloneDeep(spec || Spec.spec);
 
 
@@ -3255,6 +3234,7 @@ angular.module('pcagnosticsviz')
       update: function(spec) {
         //spec = PCAplot.checksupport(spec,fields);
         //if (PCAplot.mspec!=null) PCAplot.alternativeupdate();
+          if (Dataset.schema)
         return Spec.update(spec);
       },
       reset: function() {
@@ -3324,6 +3304,10 @@ angular.module('pcagnosticsviz')
       addWildcardField: Wildcards.addField,
       removeWildcard: Wildcards.removeItem,
       removeWildcardField: Wildcards.removeField,
+      fieldchange: function () {
+        if(Dataset.schema)
+          PCAplot.requestupdate(undefined,true);
+      }
     };
 
     Spec.reset();
@@ -3464,8 +3448,8 @@ angular.module('pcagnosticsviz')
 
             // Biplot.data;
             if (typeof dataor !=='undefined' ) {
-                PCAplot.data[0] = Dataset.schema.fieldSchemas;
-                PCAplot.data[1] =PCAplot.dataref;
+                PCAplot.data[0] = Dataset.schema._fieldSchemas_selected;
+                PCAplot.data[1] =PCAplot.dataref||[];
                 var biplotselect = $('svg.biplot');
                 var data = _.cloneDeep(dataor);
                 var margin = {top: 20, right: 20, bottom: 20, left: 20};
@@ -3510,10 +3494,10 @@ angular.module('pcagnosticsviz')
                 if (dimension<2) {
                     if (dimension === 0) {
 
-                        brand_names = Dataset.schema._fieldSchemas.filter(d => (d.type !== "temporal" && d.primitiveType !== "string")).map(d => d.field);
+                        brand_names = Dataset.schema._fieldSchemas_selected.filter(d => (d.type !== "temporal" && d.primitiveType !== "string")).map(d => d.field);
                         matrix = data2Num(data, brand_names);
 
-                        outlier = Dataset.schema._fieldSchemas.map(function (b, i) {
+                        outlier = Dataset.schema._fieldSchemas_selected.map(function (b, i) {
                             const d = b.field
 
                             if ((Dataset.schema.fieldSchema(d).type !== "quantitative") || (Dataset.schema.fieldSchema(d).primitiveType === "string")) {
@@ -3983,7 +3967,7 @@ angular.module('pcagnosticsviz')
                             })
                             .on("dragend", function (d) {
                                 var proIwant = d3.selectAll("schema-list-item")
-                                    .data(Dataset.schema.fieldSchemas)
+                                    .data(Dataset.schema._fieldSchemas_selected)
                                     .filter(function (it) {
                                         return it.field === d.brand;
                                     })
@@ -4309,7 +4293,7 @@ angular.module('pcagnosticsviz')
             // choose main axis
             if (dim===0) {
                 PCAplot.charts.length=0;
-                Dataset.schema.fieldSchemas.forEach(function (d) {
+                Dataset.schema._fieldSchemas_selected.forEach(function (d) {
                     var pca = PCAresult.find(function (it) {
                         return (it['brand'] === d.field)
                     });
@@ -4322,24 +4306,23 @@ angular.module('pcagnosticsviz')
                 var recomen =[];
                 var results ={};
                 //variance
-                Dataset.schema.fieldSchemas.sort(function (a, b) { return Math.abs(a.stats.variance) > Math.abs(b.stats.variance) ? -1 : 1});
-                results.variance = Dataset.schema.fieldSchemas.find(function(d)  {
+                Dataset.schema._fieldSchemas_selected.sort(function (a, b) { return Math.abs(a.stats.variance) > Math.abs(b.stats.variance) ? -1 : 1});
+                results.variance = Dataset.schema._fieldSchemas_selected.find(function(d)  {
                     return (recomen.find(r=>r===d)=== undefined);
                 });
                 //multimodality
-                Dataset.schema.fieldSchemas.sort(function (a, b) { return Math.abs(a.stats.multimodality) > Math.abs(b.stats.multimodality) ? -1 : 1});
-                results.multimodality = Dataset.schema.fieldSchemas.find(function(d)  {
+                Dataset.schema._fieldSchemas_selected.sort(function (a, b) { return Math.abs(a.stats.multimodality) > Math.abs(b.stats.multimodality) ? -1 : 1});
+                results.multimodality = Dataset.schema._fieldSchemas_selected.find(function(d)  {
                     return (recomen.find(r=>r===d)=== undefined);
                 });
-                Dataset.schema.fieldSchemas.sort(function (a, b) { return Math.abs(a.stats.modeskew) > Math.abs(b.stats.modeskew) ? -1 : 1});
-                results.skewness = Dataset.schema.fieldSchemas.find(function(d)  {
+                Dataset.schema._fieldSchemas_selected.sort(function (a, b) { return Math.abs(a.stats.modeskew) > Math.abs(b.stats.modeskew) ? -1 : 1});
+                results.skewness = Dataset.schema._fieldSchemas_selected.find(function(d)  {
                     return (recomen.find(r=>r===d)=== undefined);
                 });
 
-                Dataset.schema.fieldSchemas.sort(function(a, b) {
+                Dataset.schema._fieldSchemas_selected.sort(function(a, b) {
                     return ((a.extrastat.outlier) <(b.extrastat.outlier)) ? 1 : -1});
-                // console.log(Dataset.schema.fieldSchemas);
-                results.outlier = Dataset.schema.fieldSchemas.find(function(d)  {
+                results.outlier = Dataset.schema._fieldSchemas_selected.find(function(d)  {
                     return (recomen.find(r=>r===d)=== undefined);
                 });
 
@@ -4480,6 +4463,15 @@ angular.module('pcagnosticsviz')
             PCAplot.updateguide(prop);
         };
         var getData = function (dim) {
+            if (PCAplot.dataref=== undefined||PCAplot.dataref.length ===0|| PCAplot.dataref== null){
+                PCAplot.calscagnotic(1);
+                Dataset.schema._fieldSchemas_selected.forEach(fd=>{
+                    go2Level(fd,PCAplot.data[1],1);
+                });
+                PCAplot.dataref = PCAplot.data[1];
+            }
+            // if (PCAplot.data[0]===undefined)
+            //     PCAplot.data[0] = Dataset.data;
             if (PCAplot.data[dim])
                 return PCAplot.data[dim];
             // if (dim<3) // use to 2
@@ -4528,7 +4520,7 @@ angular.module('pcagnosticsviz')
 
         function drawGuideplot (object,type,dataref) {
             if (dataref === undefined)
-                dataref = Dataset.schema.fieldSchemas;
+                dataref = Dataset.schema._fieldSchemas_selected;
             var spec = spec = _.cloneDeep(instantiate() || PCAplot.spec);
             //spec.data = Dataset.dataset;
             spec.type = type;
@@ -4596,7 +4588,7 @@ angular.module('pcagnosticsviz')
 
         PCAplot.orderVariables = function (type){
             let domainByTrait = {},
-                traits = Dataset.schema.fieldSchemas.map(d=>{return {text:d.field,value:0}});
+                traits = Dataset.schema._fieldSchemas_selected.map(d=>{return {text:d.field,value:0}});
 
             traits.forEach(function(trait) {
                 trait.value = d3.sum(getData(1).filter(pc=> pc.fieldDefs.find(f=> f.field === trait.text) !== undefined ).map(d=>d.scag[type]));
@@ -4666,11 +4658,11 @@ angular.module('pcagnosticsviz')
             return support[dim].marks.find(function(m){return m===mark})===undefined;
         }
         PCAplot.checkRender = function (spec,fields) { // convert spec to mpec
-            console.log(spec)
+            // console.log(spec)
             var typer = spec2typer(spec,fields);
             var type = type2type(typer.type,typer.dim,PCAplot.dim);
-            console.log(typer);
-            console.log(type);
+            // console.log(typer);
+            // console.log(type);
             if (PCAplot.prop!= null ) {
                 if ((typer.mark !== PCAplot.prop.mark) ||(PCAplot.dim !== PCAplot.prop.dim))
                 {
@@ -4708,7 +4700,7 @@ angular.module('pcagnosticsviz')
                             return;
                         }
                     }
-                        PCAplot.state = states.GENERATE_ALTERNATIVE;
+                    PCAplot.state = states.GENERATE_ALTERNATIVE;
                     PCAplot.prop.fieldDefs = typer.fieldDefs;
                 }
             }else if (fields.length){
@@ -4738,20 +4730,33 @@ angular.module('pcagnosticsviz')
                 return (countcheck > fields.length)||(countcheck === fields.length);
             });
         }
-        PCAplot.requestupdate = function (){
-            if (PCAplot.dataref.length ===0|| PCAplot.dataref== null){
-                Dataset.schema.fieldSchemas.forEach(fd=>{
-                    go2Level(fd,PCAplot.data[1],1);
-                });
-                PCAplot.dataref = PCAplot.data[1];
+        PCAplot.requestupdate = function (dim, forceupdat){
+            if (dim===undefined)
+                dim = PCAplot.dim;
+            if (PCAplot.dim !== dim || PCAplot.firstrun|| forceupdat) { // plot condition
+                PCAplot.dim = dim;
+                // var data;
+                // if (dim == 0 || dim > 2)
+                //     data = Dataset.data;
+                // if (dim == 1) {
+                //     //PCAplot.calscagnotic(fields);
+                //     data = getData(dim);
+                // }
+                // //if (PCAplot.mainfield != fields[0]){
+                // if (PCAplot.dim !== dim && dim != 2 || forceupdat) {
+                //     PCAplot.firstrun = true;
+                // }
+                // PCAplot.plot(data, dim);
+                handleScagnostic(dim);
             }
-            return PCAplot.data[1];
+            PCAplot.dim = dim;
+            return getData(dim);
         };
         PCAplot.alternativeupdate = function(mspec){
 
             mspec = _.cloneDeep(mspec || PCAplot.prop.mspec);
             if (PCAplot.dataref.length ===0|| PCAplot.dataref== null){
-                Dataset.schema.fieldSchemas.forEach(fd=>{
+                Dataset.schema._fieldSchemas_selected.forEach(fd=>{
                     go2Level(fd,PCAplot.data[1],1);
                 });
                 PCAplot.dataref = PCAplot.data[1];
@@ -4908,87 +4913,6 @@ angular.module('pcagnosticsviz')
                 else {
                     PCAplot.alternatives.length = 0;
                 }
-            // var possible = getData(fieldsets.length-1).filter(function (d){
-            //     var ff= false;
-            //     fieldsets.forEach(function(it){
-            //         var f=false;
-            //         d.fieldDefs.forEach(function(m){f=(f||(m.field===it)); });
-            //         ff=ff||f;});
-            //     return ff;});
-            //
-            // possible = possible.filter(function (d){
-            //     var ff= true;
-            //     fieldsets.forEach(function(it){
-            //         var f=false;
-            //         d.fieldDefs.forEach(function(m){f=(f||(m.field===it)); });
-            //         ff=ff&&f;});
-            //     return !ff;});
-            // var topitem = support[1].types.map(function (d) {
-            //     return possible.sort(function (a, b) {
-            //         return (a.scag[d] < b.scag[d]) ? 1 : -1;
-            //     })[0];
-            // });
-            // // FIX ME lack of relationship mapping here
-            // var unique = [];
-            // var uniquetype = [];
-            // topitem.forEach(function (d, i) {
-            //     if (unique.filter(function (u) {
-            //             return u.fieldDefs === d.fieldDefs;
-            //         }).length === 0) {
-            //         unique.push(JSON.parse(JSON.stringify(d)));
-            //         var currentsupport = support.getsupport(fieldsets.length-1);
-            //         var maxsupport = currentsupport.types.length;
-            //         uniquetype.push(currentsupport.types[i>maxsupport?(maxsupport-1):i]);
-            //     }
-            // });
-            // unique.forEach(function(d,i){
-            //     var label='';
-            //     var newf = fieldsets.map(function(f){
-            //         label=label+'-'+f;
-            //         return Dataset.schema.fieldSchema(f);});
-            //
-            //     Array.prototype.push.apply(newf,d.fieldDefs.filter(function(fe){
-            //         var ff = true;
-            //         fieldsets.forEach(function(fs){ff=ff&&(fs!==fe.field)});
-            //         if (ff) label=label+'-'+fe.field;
-            //         return ff;})
-            //     );
-            //     d.label = label;
-            //     d.type = uniquetype[i];
-            // d.fieldDefs=newf});
-            //     unique  = _.uniqBy(unique,'label');
-            //
-            // var charts = unique.map(function (d, i) {
-            //     return {v: d, type: d.type}
-            // })
-            //     .map(function (d) {
-            //         var spec = {};
-            //         spec.type = d.type;
-            //         spec.config = {
-            //
-            //             axis: {
-            //                 grid: false,
-            //                 ticks: false,
-            //                 titleOffset: 15
-            //             },
-            //             overlay: {line: true},
-            //             scale: {useRawDomain: true}
-            //         };
-            //         mark2plot(mark2mark(mspec.vlSpec.mark, PCAplot.dim), spec, d.v.fieldDefs);
-            //         var query = getQuery(spec,undefined,d.type);
-            //         var output = cql.query(query, Dataset.schema);
-            //         PCAplot.query = output.query;
-            //         var topItem = output.result.getTopSpecQueryModel();
-            //         var charttemp = Chart.getChart(topItem);
-            //         charttemp.query={
-            //             groupBy: 'encoding',
-            //             orderBy: ['feature'],
-            //             chooseBy: ['abstraction'],
-            //             //chooseBy: ['aggregationQuality', 'effectiveness'],
-            //         };
-            //         return charttemp;
-            //
-            //     });
             PCAplot.alternatives = [{'charts': charts}];
             }
 
@@ -5000,7 +4924,7 @@ angular.module('pcagnosticsviz')
             PCAplot.marks = support[prop.dim].marks.map((m,i)=> {return {label:abtractionLevel[i], mark: m, level:i}});
             var nprop = _.cloneDeep(prop);
             nprop.ranking = getranking(prop.type);
-            mark2plot (prop.mark,nprop.mspec,Dataset.schema.fieldSchemas.slice(0,prop.dim+1));
+            mark2plot (prop.mark,nprop.mspec,Dataset.schema._fieldSchemas_selected.slice(0,prop.dim+1));
             nprop.charts.length = 0;
 
             var dataref = prop.dim>2?[prop.fieldDefs]:getData(nprop.dim);//?PCAplot.dataref:Dataset.schema.fieldSchemas;
@@ -5597,9 +5521,9 @@ angular.module('pcagnosticsviz')
             };
             const onScag = (maxCombine)=>{
                 //asume that _fieldSchemaIndex sorted and won't change over time
-                const  combination = k_combinations(Object.keys(dataschema._fieldSchemaIndex), maxCombine);
+                const  combination = k_combinations(Object.keys(dataschema._fieldSchemaIndex_selected), maxCombine);
                 combination.forEach((fields,index_progress)=>{
-                    let dest = dataschema._fieldSchemaIndex[fields[0]];
+                    let dest = dataschema._fieldSchemaIndex_selected[fields[0]];
                     let calKey = false; // should we calculate scag or not
                     let valid = true;
                     for (let i=1; i< maxCombine; i++){
@@ -5612,7 +5536,7 @@ angular.module('pcagnosticsviz')
                             calKey = true||calKey;
                             dest.scagStats[selectedfield] ={};
                         }
-                        valid = valid && checkValid(dataschema._fieldSchemaIndex[selectedfield]);
+                        valid = valid && checkValid(dataschema._fieldSchemaIndex_selected[selectedfield]);
                         dest = dest.scagStats[selectedfield];
                     }
                     if(calKey){
@@ -5721,7 +5645,7 @@ angular.module('pcagnosticsviz')
                         invalid: 1,
                     };
                     combination.forEach(c=>{
-                        const curretn_scag = (dataschema._fieldSchemaIndex[c[0]].scagStats[c[1]]||dataschema._fieldSchemaIndex[c[0]].scagStats[c[1]]).scag;
+                        const curretn_scag = (dataschema._fieldSchemaIndex_selected[c[0]].scagStats[c[1]]||dataschema._fieldSchemaIndex_selected[c[0]].scagStats[c[1]]).scag;
                         results.outlying = Math.max(curretn_scag.outlying,results.outlying);
                         results.skewed = Math.max(curretn_scag.skewed,results.skewed);
                         results.sparse = Math.max(curretn_scag.sparse,results.sparse);
@@ -5849,23 +5773,24 @@ angular.module('pcagnosticsviz')
 
         function handleScagnostic (index) {
             // Alerts.add('done with scagnostic calculation');
-            $mdToast.show(
-                $mdToast.simple()
-                    .textContent('Finish calculation for scatterplot matrix')
-                    .position('top right')
-                    .hideDelay(2000));
-            try {
-                PCAplot.data[index]=[];
-                Dataset.schema.fieldSchemas.sort((a,b)=>a.index-b.index);
-                Dataset.schema.fieldSchemas.forEach(fd=>{
-                    go2Level(fd,PCAplot.data[index],index);
-                });
-                // if (PCAplot.dim===index-1)
-                    update_dataref(index);
-            }catch(e){}
+
+                try {
+                    PCAplot.data[index?index:1] = [];
+                    Dataset.schema._fieldSchemas_selected.sort((a, b) => a.index - b.index);
+                    Dataset.schema._fieldSchemas_selected.forEach(fd => {
+                        go2Level(fd, PCAplot.data[index?index:1], index?index:1);
+                    });
+                    // if (PCAplot.dim===index-1)
+                    PCAplot.state = states.GENERATE_ALTERNATIVE;
+                    if (index===0)
+                        PCAplot.data[0] = Dataset.schema._fieldSchemas_selected;
+                    update_dataref(index?index:1);
+                } catch (e) {
+                }
+
             if (PCAplot.dim===index) {
                 PCAplot.firstrun =true;
-                PCAplot.plot(PCAplot.data[index].map(d=>d), 1);
+                PCAplot.plot(index?getData(index).map(d=>d):Dataset.data, index);
             }
             try {
                 PCAplot.updateSpec(PCAplot.prop);
@@ -5986,7 +5911,7 @@ angular.module('pcagnosticsviz')
                         'importScripts("https://raw.githack.com/karpathy/tsnejs/master/tsne.js");\n' +
                         'importScripts("https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.20/require.min.js");\n' +
                         'importScripts("https://raw.githack.com/Zipexpo/umap-js/master/lib/umap-js.min.js");'});
-                PCAplot.workerOjects[currentcal].run({data: Dataset.data,schema:Dataset.schema.fieldSchemas,Perplexity:10}).then(function (result) {
+                PCAplot.workerOjects[currentcal].run({data: Dataset.data,schema:Dataset.schema._fieldSchemas_selected,Perplexity:10}).then(function (result) {
                     console.log(result);
                     _.pull(PCAplot.calculateState,currentcal);
                     PCAplot.workerOjects[currentcal] = undefined;
@@ -6049,7 +5974,7 @@ angular.module('pcagnosticsviz')
                         PCAplot.calProcess = progress.progress*100;
                         // Process results
                         var label_stack = [progress.fields.shift()];
-                        var source = Dataset.schema._fieldSchemaIndex[label_stack[0]];
+                        var source = Dataset.schema._fieldSchemaIndex_selected[label_stack[0]];
                         if (source.scagStats=== undefined) {
                             source.scagStats = {};
                         }
@@ -6085,13 +6010,18 @@ angular.module('pcagnosticsviz')
             }
         }
 
-        function onCal_scagnotic (index){
+        function onCal_scagnotic (index){ // should scag calculate for all Dim?
             if (!PCAplot.workerOjects['Scagnostic']) {
                 PCAplot.calProcess = 0;
                 const currentcal = 'Scagnostic';
                 PCAplot.calculateState.push(currentcal);
                 PCAplot.workerOjects['Scagnostic'] = Webworker.create(calscagnotic, {async: true});
                 PCAplot.workerOjects['Scagnostic'].run(Dataset.schema, Dataset.data,index+1).then(function (result) {
+                    $mdToast.show(
+                        $mdToast.simple()
+                            .textContent('Finish calculation for scatterplot matrix')
+                            .position('top right')
+                            .hideDelay(2000));
                     handleScagnostic(index);
                     _.pull(PCAplot.calculateState,currentcal);
                     PCAplot.workerOjects['Scagnostic'] = undefined;
@@ -6102,7 +6032,7 @@ angular.module('pcagnosticsviz')
                     PCAplot.calProcess = progress.progress*100;
                     // Process results
                     var label_stack = [progress.fields.shift()];
-                    var source = Dataset.schema._fieldSchemaIndex[label_stack[0]];
+                    var source = Dataset.schema._fieldSchemaIndex_selected[label_stack[0]];
                     if (source.scagStats=== undefined) {
                         source.scagStats = {};
                     }
@@ -6254,6 +6184,19 @@ angular.module('pcagnosticsviz')
       $document.find('.vis-pane-container').scrollTop(0);
     };
 
+    $scope.toggleSelectFields = function ($event) {
+        switch($event.currentTarget.getAttribute('aria-checked')){
+            case 'true':
+                $event.currentTarget.setAttribute('aria-checked','false');
+                break;
+            case 'false':
+                $event.currentTarget.setAttribute('aria-checked','true');
+                break;
+            default:
+                $event.currentTarget.setAttribute('aria-checked','true');
+        }
+    };
+
     $scope.groupByChanged = function() {
       Logger.logInteraction(Logger.actions.GROUP_BY_CHANGED, Spec.spec.groupBy);
     };
@@ -6272,11 +6215,11 @@ angular.module('pcagnosticsviz')
     });
 
       $scope.$watch(function(){
-          return PCAplot.mspec;
+          return ((Dataset.schema||{})._fieldSchemas_selected||[]).map(d=>d.field);
       },function(newmspec){
-         console.log('logging....');
+         console.log('chaging....');
          console.log(newmspec);
-      });
+      },true);
 
     // undo/redo support
     $scope.canUndo = false;
@@ -6715,10 +6658,10 @@ angular.module('pcagnosticsviz')
     return Alternatives;
   }]);
 
-angular.module("pcagnosticsviz").run(["$templateCache", function($templateCache) {$templateCache.put("app/main/main.html","<div ng-controller=\"MainCtrl\" ng-class=\"{light: themeDrak}\" class=\"flex-root vflex full-width full-height\" ng-mousedown=\"onMouseDownLog($event)\" ng-mouseenter=\"onMouseEnterLog($event)\" ng-mouseover=\"onMouseOverLog($event)\"><div class=\"full-width no-shrink shadow\"><div class=\"card top-card no-right-margin no-top-margin\"><div class=\"hflex\" style=\"justify-content: space-between;\"><div class=\"pane\" style=\"display: inline-flex;\"><div id=\"logo\"></div></div><div class=\"pane\"><div class=\"controls\"><a class=\"command\" ng-click=\"chron.undo()\" ng-class=\"{disabled: !canUndo}\"><i class=\"fa fa-undo\"></i> Undo</a> <a class=\"command\" ng-click=\"chron.redo()\" ng-class=\"{disabled: !canRedo}\"><i class=\"fa fa-repeat\"></i> Redo</a></div></div><div class=\"pane\" style=\"display: inline-flex;\"><div id=\"processDisplay\" ng-hide=\"PCAplot.calProcess==0\"><h4>Calculating {{PCAplot.calculateState}}....</h4><md-progress-linear class=\"md-theme\" md-mode=\"determinate\" value=\"{{PCAplot.calProcess}}\"></md-progress-linear></div><div class=\"controls\"><a class=\"command\" ng-if=\"themeDrak\" ng-click=\"changetheme()\"><i class=\"fa fa-moon-o\"></i> Dark</a> <a class=\"command\" ng-if=\"!themeDrak\" ng-click=\"changetheme()\"><i class=\"fa fa-sun-o\"></i> Light</a></div></div></div></div><alert-messages></alert-messages></div><div class=\"hflex full-width main-panel grow-1\"><div class=\"pane data-pane noselect\"><div class=\"card no-top-margin data-card abs-100 modifedside\"><div class=\"sidebar-header\" ng-if=\"!embedded\"><dataset-selector class=\"right\"></dataset-selector><div class=\"current-dataset\" title=\"{{Dataset.currentDataset.name}}\"><h2 style=\"display:inline-block; margin:0;\">Data</h2><i class=\"fa fa-database\"></i> <span class=\"dataset-name\">{{Dataset.currentDataset.name}}</span></div><div style=\"color:var(--fontColor);\"><span class=\"dataset-info\">Data contains <strong>{{Dataset.data.length}}</strong> instances and <strong>{{Dataset.schema.fieldSchemas.length}}</strong> variables</span></div></div><h3>Overview</h3><bi-plot error=\"PCAplot.error.code==1\" hidesvg=\"false\" <!--hidecanvas=\"PCAplot.dim<3\" --=\"\">></bi-plot><h3>Exemplar plots</h3><div class=\"scroll-y-nox scroll-y\"><vl-plot-group ng-class=\"{square: PCAplot.dim}\" ng-if=\"PCAplot.chart\" class=\"main-vl-plot-group card no-shrink guideplot\" ng-repeat=\"chart in PCAplot.charts\" ng-click=\"PCAplot.prop2spec(chart.prop)\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"true\" show-axis-prop=\"false\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\" style=\"margin-top: 0px; margin-bottom: 3px;\"></vl-plot-group><div class=\"hflex full-width\"><h3>Variables</h3><div class=\"header-drop active\"><i class=\"fa fa-caret-down droplist\" ng-click=\"fieldShow = !fieldShow\"></i></div></div><div ng-show=\"fieldShow\"><schema-list field-defs=\"Dataset.schema.fieldSchemas\" order-by=\"Dataset.fieldOrder\" show-count=\"true\" filter-manager=\"FilterManager\" show-add=\"true\"></schema-list></div><div ng-show=\"WildcardsShow\"><schema-list field-defs=\"Wildcards.list\" show-add=\"true\" show-drop=\"true\"></schema-list></div></div></div>Ma</div><div class=\"pane vis-pane\"><div class=\"vis-pane-container abs-100\" ng-class=\"{\'scroll-y\': !hideExplore || !Spec.isSpecific, \'no-scroll-y\': hideExplore && Spec.isSpecific}\"><div class=\"mainareacustom full-width\"><div class=\"pane encoding-pane\" style=\"min-height: 200px;\"><shelves spec=\"Spec.spec\" filter-manager=\"FilterManager\" preview=\"false\" support-any=\"true\" ng-class=\"shelvescustom\" prop=\"PCAplot.prop\" custommarks=\"PCAplot.marks\" props=\"PCAplot.types\" updatefunc=\"PCAplot.updateSpec\" hidecustom=\"PCAplot.prop&&Spec.isSpecific && !Spec.isEmptyPlot\"></shelves><shelves class=\"preview\" ng-show=\"Spec.previewedSpec\" spec=\"Spec.previewedSpec || Spec.emptySpec\" preview=\"true\" support-any=\"true\"></shelves></div><slide-graph ng-if=\"PCAplot.prop.charts && Spec.isSpecific && !Spec.isEmptyPlot\" charts=\"PCAplot.prop.charts\" pos=\"PCAplot.prop.pos\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></slide-graph></div><div class=\"alternatives-pane card navigation\" ng-class=\"{collapse: hideExplore}\" ng-if=\"PCAplot.prop&&Spec.isSpecific && !Spec.isEmptyPlot\" style=\"margin-top: 0px;\"><guide-menu prop=\"PCAplot.prop\" priority=\"10\" marks=\"PCAplot.marks\" props=\"PCAplot.types\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></guide-menu></div></div></div><div class=\"pane guidemenu grow-1\" ng-if=\"showExtraGuide||PCAplot.prop\"><div class=\"alternatives-pane card\" ng-class=\"{collapse: hideExplore}\" ng-if=\"Spec.isSpecific && !Spec.isEmptyPlot\"><div class=\"alternatives-header\"><div class=\"right alternatives-jump\"><a class=\"toggle-hide-explore\" ng-click=\"toggleHideExplore()\"><span ng-show=\"hideExplore\">Show <i class=\"fa fa-toggle-up\"></i></span> <span ng-show=\"!hideExplore\">Hide <i class=\"fa fa-toggle-down\"></i></span></a></div><h2>Expanded views</h2></div><div class=\"alternatives-content scroll-y\" ng-if=\"!hideExplore\"><vl-plot-group-list ng-repeat=\"alternative in PCAplot.alternatives\" ng-if=\"alternative.charts.length > 0 && (!$parent.alternativeType || $parent.alternativeType === alternative.type)\" id=\"alternatives-{{alternative.type}}\" list-title=\"alternative.title\" charts=\"alternative.charts\" enable-pills-preview=\"true\" priority=\"$index * 2000\" initial-limit=\"alternative.limit || null\" post-select-action=\"$parent.scrollToTop()\" show-query-select=\"true\" query=\"alternative.query\" show-bookmark=\"false\" <!--ng-click=\"choseByClick($event)\" --=\"\">></vl-plot-group-list></div></div></div></div><div class=\"hflex full-width dev-panel\" ng-if=\"showDevPanel\"><div class=\"pane\" ng-show=\"consts.logToWebSql\"><div class=\"card\"><div>userid: {{Logger.userid}}</div><button ng-click=\"Logger.clear()\">Clear logs</button><br><button ng-click=\"Logger.export()\">Download logs</button></div></div><div class=\"pane config-pane\"><div class=\"card scroll-y abs-100\"><configuration-editor></configuration-editor></div></div><div class=\"pane vl-pane\"><cql-query-editor></cql-query-editor></div><div class=\"pane vg-pane\"><vg-spec-editor></vg-spec-editor></div></div><bookmark-list highlighted=\"Fields.highlighted\" post-select-action=\"scrollToTop\"></bookmark-list><dataset-modal></dataset-modal></div>");
+angular.module("pcagnosticsviz").run(["$templateCache", function($templateCache) {$templateCache.put("app/main/main.html","<div ng-controller=\"MainCtrl\" ng-class=\"{light: themeDrak}\" class=\"flex-root vflex full-width full-height\" ng-mousedown=\"onMouseDownLog($event)\" ng-mouseenter=\"onMouseEnterLog($event)\" ng-mouseover=\"onMouseOverLog($event)\"><div class=\"full-width no-shrink shadow\"><div class=\"card top-card no-right-margin no-top-margin\"><div class=\"hflex\" style=\"justify-content: space-between;\"><div class=\"pane\" style=\"display: inline-flex;\"><div id=\"logo\"></div></div><div class=\"pane\"><div class=\"controls\"><a class=\"command\" ng-click=\"chron.undo()\" ng-class=\"{disabled: !canUndo}\"><i class=\"fa fa-undo\"></i> Undo</a> <a class=\"command\" ng-click=\"chron.redo()\" ng-class=\"{disabled: !canRedo}\"><i class=\"fa fa-repeat\"></i> Redo</a></div></div><div class=\"pane\" style=\"display: inline-flex;\"><div id=\"processDisplay\" ng-hide=\"PCAplot.calProcess==0\"><h4>Calculating {{PCAplot.calculateState}}....</h4><md-progress-linear class=\"md-theme\" md-mode=\"determinate\" value=\"{{PCAplot.calProcess}}\"></md-progress-linear></div><div class=\"controls\"><a class=\"command\" ng-if=\"themeDrak\" ng-click=\"changetheme()\"><i class=\"fa fa-moon-o\"></i> Dark</a> <a class=\"command\" ng-if=\"!themeDrak\" ng-click=\"changetheme()\"><i class=\"fa fa-sun-o\"></i> Light</a></div></div></div></div><alert-messages></alert-messages></div><div class=\"hflex full-width main-panel grow-1\"><div class=\"pane data-pane noselect\"><div class=\"card no-top-margin data-card abs-100 modifedside\"><div class=\"sidebar-header\" ng-if=\"!embedded\"><dataset-selector class=\"right\"></dataset-selector><div class=\"current-dataset\" title=\"{{Dataset.currentDataset.name}}\"><h2 style=\"display:inline-block; margin:0;\">Data</h2><i class=\"fa fa-database\"></i> <span class=\"dataset-name\">{{Dataset.currentDataset.name}}</span></div><div style=\"color:var(--fontColor);\"><span class=\"dataset-info\">Data contains <strong>{{Dataset.data.length}}</strong> instances and <strong>{{Dataset.schema.fieldSchemas.length}}</strong> variables</span></div></div><h3>Overview</h3><bi-plot error=\"PCAplot.error.code==1\" hidesvg=\"false\" <!--hidecanvas=\"PCAplot.dim<3\" --=\"\">></bi-plot><h3>Exemplar plots</h3><div class=\"scroll-y-nox scroll-y\"><vl-plot-group ng-class=\"{square: PCAplot.dim}\" ng-if=\"PCAplot.chart\" class=\"main-vl-plot-group card no-shrink guideplot\" ng-repeat=\"chart in PCAplot.charts\" ng-click=\"PCAplot.prop2spec(chart.prop)\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"true\" show-axis-prop=\"false\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\" style=\"margin-top: 0px; margin-bottom: 3px;\"></vl-plot-group><div class=\"hflex full-width\" style=\"justify-content: space-between;align-items: baseline;\"><div><h3 style=\"display: inline-block\">Variables</h3><div class=\"header-drop active\" style=\"display: inline-block\"><i class=\"fa fa-caret-down droplist\" ng-click=\"fieldShow = !fieldShow\"></i></div></div><div class=\"fieldSelection right\" aria-checked=\"true\" role=\"checkbox\" ng-click=\"toggleSelectFields($event)\" ng-show=\"fieldShow\"><span></span><i class=\"fa\"></i></div></div><div ng-show=\"fieldShow\"><schema-list field-defs=\"Dataset.schema.fieldSchemas\" order-by=\"Dataset.fieldOrder\" show-count=\"false\" show-remove=\"true\" filter-manager=\"FilterManager\" show-add=\"false\"></schema-list></div><div ng-show=\"WildcardsShow\"><schema-list field-defs=\"Wildcards.list\" show-add=\"true\" show-drop=\"true\"></schema-list></div></div></div>Ma</div><div class=\"pane vis-pane\"><div class=\"vis-pane-container abs-100\" ng-class=\"{\'scroll-y\': !hideExplore || !Spec.isSpecific, \'no-scroll-y\': hideExplore && Spec.isSpecific}\"><div class=\"mainareacustom full-width\"><div class=\"pane encoding-pane\" style=\"min-height: 200px;\"><shelves spec=\"Spec.spec\" filter-manager=\"FilterManager\" preview=\"false\" support-any=\"true\" ng-class=\"shelvescustom\" prop=\"PCAplot.prop\" custommarks=\"PCAplot.marks\" props=\"PCAplot.types\" updatefunc=\"PCAplot.updateSpec\" hidecustom=\"PCAplot.prop&&Spec.isSpecific && !Spec.isEmptyPlot\"></shelves><shelves class=\"preview\" ng-show=\"Spec.previewedSpec\" spec=\"Spec.previewedSpec || Spec.emptySpec\" preview=\"true\" support-any=\"true\"></shelves></div><slide-graph ng-if=\"PCAplot.prop.charts && Spec.isSpecific && !Spec.isEmptyPlot\" charts=\"PCAplot.prop.charts\" pos=\"PCAplot.prop.pos\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></slide-graph></div><div class=\"alternatives-pane card navigation\" ng-class=\"{collapse: hideExplore}\" ng-if=\"PCAplot.prop&&Spec.isSpecific && !Spec.isEmptyPlot\" style=\"margin-top: 0px;\"><guide-menu prop=\"PCAplot.prop\" priority=\"10\" marks=\"PCAplot.marks\" props=\"PCAplot.types\" limitup=\"PCAplot.limitup\" limit=\"PCAplot.limit\"></guide-menu></div></div></div><div class=\"pane guidemenu grow-1\" ng-if=\"showExtraGuide||PCAplot.prop\"><div class=\"alternatives-pane card\" ng-class=\"{collapse: hideExplore}\" ng-if=\"Spec.isSpecific && !Spec.isEmptyPlot\"><div class=\"alternatives-header\"><div class=\"right alternatives-jump\"><a class=\"toggle-hide-explore\" ng-click=\"toggleHideExplore()\"><span ng-show=\"hideExplore\">Show <i class=\"fa fa-toggle-up\"></i></span> <span ng-show=\"!hideExplore\">Hide <i class=\"fa fa-toggle-down\"></i></span></a></div><h2>Expanded views</h2></div><div class=\"alternatives-content scroll-y\" ng-if=\"!hideExplore\"><vl-plot-group-list ng-repeat=\"alternative in PCAplot.alternatives\" ng-if=\"alternative.charts.length > 0 && (!$parent.alternativeType || $parent.alternativeType === alternative.type)\" id=\"alternatives-{{alternative.type}}\" list-title=\"alternative.title\" charts=\"alternative.charts\" enable-pills-preview=\"true\" priority=\"$index * 2000\" initial-limit=\"alternative.limit || null\" post-select-action=\"$parent.scrollToTop()\" show-query-select=\"true\" query=\"alternative.query\" show-bookmark=\"false\" <!--ng-click=\"choseByClick($event)\" --=\"\">></vl-plot-group-list></div></div></div></div><div class=\"hflex full-width dev-panel\" ng-if=\"showDevPanel\"><div class=\"pane\" ng-show=\"consts.logToWebSql\"><div class=\"card\"><div>userid: {{Logger.userid}}</div><button ng-click=\"Logger.clear()\">Clear logs</button><br><button ng-click=\"Logger.export()\">Download logs</button></div></div><div class=\"pane config-pane\"><div class=\"card scroll-y abs-100\"><configuration-editor></configuration-editor></div></div><div class=\"pane vl-pane\"><cql-query-editor></cql-query-editor></div><div class=\"pane vg-pane\"><vg-spec-editor></vg-spec-editor></div></div><bookmark-list highlighted=\"Fields.highlighted\" post-select-action=\"scrollToTop\"></bookmark-list><dataset-modal></dataset-modal></div>");
 $templateCache.put("components/configurationeditor/configurationeditor.html","<form><pre>{{ Config.config | compactJSON }}</pre></form>");
-$templateCache.put("components/d3-biplot/bi-plot.html","<h4 style=\"position: absolute; color: black; width: 100%; text-align: center;\" ng-if=\"error\">Can\'t display the corresponding bi-plot</h4><svg id=\"bi-plot\" width=\"100%\" class=\"biplot\" ng-hide=\"hideSvg\"><g id=\"bi-plot2\"></g><rect class=\"overlay\"></rect><g id=\"bi-plot-g\"><g id=\"bi-plot-axis\"></g><g id=\"bi-plot-point\"></g></g></svg>");
 $templateCache.put("components/cqlQueryEditor/cqlQueryEditor.html","<div class=\"card scroll-y abs-100 vflex\"><div><div class=\"right command\"><a ui-zeroclip=\"\" zeroclip-model=\"Spec.query | compactJSON\">Copy</a></div><h3>CompassQL Query</h3></div><textarea class=\"cqlquery flex-grow-1 full-height\" json-input=\"\" type=\"text\" ng-model=\"Spec.cleanQuery\"></textarea></div>");
+$templateCache.put("components/d3-biplot/bi-plot.html","<h4 style=\"position: absolute; color: black; width: 100%; text-align: center;\" ng-if=\"error\">Can\'t display the corresponding bi-plot</h4><svg id=\"bi-plot\" width=\"100%\" class=\"biplot\" ng-hide=\"hideSvg\"><g id=\"bi-plot2\"></g><rect class=\"overlay\"></rect><g id=\"bi-plot-g\"><g id=\"bi-plot-axis\"></g><g id=\"bi-plot-point\"></g></g></svg>");
 $templateCache.put("components/d3-guideplot/gplot.html","<div class=\"gplot\" ng-click=\"explore()\"><svg class=\"gplotSvg\" id=\"gplot{{pcaDef}}\"></svg></div>");
 $templateCache.put("components/d3-guideplot/guide-plot.html","<div id=\"guide-plot-group\" class=\"guideplot\"><g-plot ng-repeat=\"pcaDef in pcaDefs\" pca-def=\"pcaDef\" id=\"{{pcaDef}}\"></g-plot></div>");
 $templateCache.put("components/d3-slidegraph/slide-com.html","<li class=\"item wrap\"><vl-plot-group ng-if=\"chart!=undefined\" class=\"item\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"false\" show-axis-prop=\"false\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\"></vl-plot-group></li>");
