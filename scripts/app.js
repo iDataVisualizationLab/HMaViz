@@ -92,6 +92,20 @@ angular.module('pcagnosticsviz', [
 
 'use strict';
 
+angular.module('pcagnosticsviz')
+  .directive('vgSpecEditor', ["Spec", function(Spec) {
+    return {
+      templateUrl: 'components/vgSpecEditor/vgSpecEditor.html',
+      restrict: 'E',
+      scope: {},
+      link: function postLink(scope /*, element, attrs*/) {
+        scope.Spec = Spec;
+      }
+    };
+  }]);
+
+'use strict';
+
 /**
  * @ngdoc directive
  * @name pcagnosticsviz.directive:nullFilterDirective
@@ -114,20 +128,6 @@ angular.module('pcagnosticsviz')
       }
     };
   }]);
-'use strict';
-
-angular.module('pcagnosticsviz')
-  .directive('vgSpecEditor', ["Spec", function(Spec) {
-    return {
-      templateUrl: 'components/vgSpecEditor/vgSpecEditor.html',
-      restrict: 'E',
-      scope: {},
-      link: function postLink(scope /*, element, attrs*/) {
-        scope.Spec = Spec;
-      }
-    };
-  }]);
-
 'use strict';
 
 angular.module('pcagnosticsviz')
@@ -1189,14 +1189,13 @@ angular.module('pcagnosticsviz')
                             .dimensions(dimObj)
                             .render()
                             .reorderable()
-                            .brushMode("1D-axes");
+                            .brushMode("1D-axes")
+                        .interactive();
                         generalattr.pc2.svg.selectAll('.dimension').select('text.label').style('fill', 'black');
                         generalattr.pc2.svg.selectAll("text")
                             .style("font", "10px sans-serif");
                     }else{
-                        generalattr.pc2.dimension(dimObj)
-                            .render()
-                            .updateAxes();
+                        generalattr.pc2.dimensions(dimObj).updateAxes();
                     }
                 }
                 //TODO
@@ -5914,7 +5913,6 @@ angular.module('pcagnosticsviz')
                     PCAplot.updateplot(result.data,PCAplot.dim,result.config,true);
                 }, null, function (progress) {
                     // Process results
-                    console.log(progress);
                     PCAplot.updateplot(progress.data,PCAplot.dim,progress.config);
                 }).catch(function (oError) {
                     PCAplot.workerOjects[currentcal] = undefined;
@@ -6102,7 +6100,7 @@ angular.module('pcagnosticsviz')
 'use strict';
 
 angular.module('pcagnosticsviz')
-  .controller('MainCtrl', ["$scope", "$document", "Spec", "Dataset", "Wildcards", "Config", "consts", "Chronicle", "Logger", "Bookmarks", "Modals", "FilterManager", "NotifyingService", "PCAplot", function($scope, $document, Spec, Dataset, Wildcards,  Config, consts, Chronicle, Logger, Bookmarks, Modals, FilterManager,NotifyingService,PCAplot) {
+  .controller('MainCtrl', ["$scope", "$document", "Spec", "Dataset", "Wildcards", "Config", "consts", "Chronicle", "Logger", "Bookmarks", "Modals", "FilterManager", "NotifyingService", "PCAplot", "Pills", "$mdToast", function($scope, $document, Spec, Dataset, Wildcards,  Config, consts, Chronicle, Logger, Bookmarks, Modals, FilterManager,NotifyingService,PCAplot,Pills,$mdToast) {
     $scope.Spec = Spec;
     $scope.contain = {"bi-plot":'Overview',
         "div":[{key:'guideplot',val:'Exemplar'},
@@ -6181,14 +6179,29 @@ angular.module('pcagnosticsviz')
     $scope.toggleSelectFields = function ($event) {
         switch($event.currentTarget.getAttribute('aria-checked')){
             case 'true':
+                $mdToast.show(
+                    $mdToast.simple()
+                        .textContent('Keep a least 2 variable to avoid error!')
+                        .position('top right')
+                        .hideDelay(2000));
                 $event.currentTarget.setAttribute('aria-checked','false');
+                $scope.Dataset.schema._fieldSchemas_selected.forEach(f=>f.disable=true); // disabel all
+                $scope.Dataset.schema._fieldSchemas_selected= $scope.Dataset.schema._fieldSchemas_selected.slice(0,2);
+                $scope.Dataset.schema._fieldSchemas_selected.forEach(f=>f.disable=false); // enable 2 for avoid error
+                $scope.Dataset.schema._fieldSchemaIndex_selected = {};
+                $scope.Dataset.schema._fieldSchemas_selected.forEach(d=>$scope.Dataset.schema._fieldSchemaIndex_selected[d.field]=d);
                 break;
             case 'false':
                 $event.currentTarget.setAttribute('aria-checked','true');
+                $scope.Dataset.schema._fieldSchemas.forEach(f=>f.disable=false);
+                $scope.Dataset.schema._fieldSchemaIndex_selected = $scope.Dataset.schema._fieldSchemaIndex;
+                $scope.Dataset.schema._fieldSchemas_selected = $scope.Dataset.schema._fieldSchemas.slice();
+                $scope.Dataset.schema._fieldSchemas_selected.sort((a,b)=>a.index-b.index);
                 break;
             default:
                 $event.currentTarget.setAttribute('aria-checked','true');
         }
+        Pills.fieldchange();
     };
 
     $scope.groupByChanged = function() {
@@ -6208,12 +6221,12 @@ angular.module('pcagnosticsviz')
       $scope.setAlternativeType(null, true);
     });
 
-      $scope.$watch(function(){
-          return ((Dataset.schema||{})._fieldSchemas_selected||[]).map(d=>d.field);
-      },function(newmspec){
-         console.log('chaging....');
-         console.log(newmspec);
-      },true);
+      // $scope.$watch(function(){
+      //     return ((Dataset.schema||{})._fieldSchemas_selected||[]).map(d=>d.field);
+      // },function(newmspec){
+      //    console.log('chaging....');
+      //    console.log(newmspec);
+      // },true);
 
     // undo/redo support
     $scope.canUndo = false;
