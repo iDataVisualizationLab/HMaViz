@@ -367,7 +367,9 @@ angular.module('pcagnosticsviz')
                                     generalplot_3D($scope.prop);
                                     break;
                                 default:
-                                    generalplot_nD($scope.prop);
+                                    $scope.$on('nDimentional:ready', () => {
+                                        generalplot_nD($scope.prop);
+                                    });
                                     break;
                             }
                         }catch (e) {
@@ -414,6 +416,7 @@ angular.module('pcagnosticsviz')
 
                 function selectplot_nD(data){
                     const dims = $scope.prop.mspec.fieldSet.map(d=>d.field);
+                    if (generalattr.pc2)
                     generalattr.pc2.svg.selectAll('.dimension')
                         .classed('hightlight',false)
                         .filter(f=>dims.find(d=>d===f)!==undefined)
@@ -1239,16 +1242,22 @@ angular.module('pcagnosticsviz')
             }]
         }
     }])
-    .directive('foRepeatDirective', function() {
-        return function(scope, element, attrs) {
-
-            if (scope.$last){
-                // d3.select('.thum').select('.oneDimentional').selectAll('.active').classed('active',false);
-                // d3.select('.thum').select('.oneDimentional').selectAll('foreignObject').filter(d=>d.order==index).classed('active',true);
-                // window.alert("im the last!");
-            }
+    .directive('elementReady',['$timeout', '$rootScope', function() {
+        return function($timeout, $rootScope) {
+            return {
+                restrict: 'A',
+                link(scope, element, attrs) {
+                    $timeout(() => {
+                        element.ready(() => {
+                            scope.$apply(() => {
+                                $rootScope.$broadcast(`${attrs.elementReady}:ready`);
+                            });
+                        });
+                    });
+                }
+            };
         };
-    });
+    }]);
 
 'use strict';
 angular.module('pcagnosticsviz')
@@ -3437,6 +3446,7 @@ angular.module('pcagnosticsviz')
             return d[f];
         }
         PCAplot.plot =function(dataor,dimension) {
+            PCAplot.error = {};
             if (!Object.keys(Config.data).length){return PCAplot;}
             if (!PCAplot.firstrun && (Dataset.currentDataset[Object.keys(Config.data)[0]]===Config.data[Object.keys(Config.data)[0]])) {return PCAplot;}
             PCAplot.firstrun = false;
@@ -4373,7 +4383,7 @@ angular.module('pcagnosticsviz')
                 ran =0;
                 support[dim].types.filter((d,i)=>i<4).forEach((d)=>{
                     var  item = tops.find(t=>t.type==d);
-                    if(item)
+                    if(item && PCAplot.dim===1)
                         drawGuideplot(item.fields,item.type,PCAplot.dataref)});
 
             }
@@ -5651,10 +5661,6 @@ angular.module('pcagnosticsviz')
                         let curretn_scag = (dataschema._fieldSchemaIndex_selected[c[0]].scagStats[c[1]]||{}).scag;
                         if (curretn_scag === undefined)
                             curretn_scag = dataschema._fieldSchemaIndex_selected[c[1]].scagStats[c[0]].scag;
-                        console.log('#####################');
-                        console.log(c);
-                        console.log(curretn_scag);
-                        console.log(results);
                         results.outlying = Math.max(curretn_scag.outlying,results.outlying);
                         results.skewed = Math.max(curretn_scag.skewed,results.skewed);
                         results.sparse = Math.max(curretn_scag.sparse,results.sparse);
@@ -5770,7 +5776,7 @@ angular.module('pcagnosticsviz')
                 _.intersection(Object.keys(s.scagStats) , Dataset.schema._fieldSchemas_selected.map(d=>d.field)).forEach((subf)=>
                     go2Level (s.scagStats[subf],collection,level-1));
             }else {
-                if (s.label&&s.label.filter(d=>d).length ===s.label.length) {
+                if (s.scag&&s.label&&s.label.filter(d=>d).length ===s.label.length) {
                     //reach to destination
                     collection.push({
                         label: s.label,
@@ -6691,5 +6697,5 @@ $templateCache.put("components/d3-guideplot/gplot.html","<div class=\"gplot\" ng
 $templateCache.put("components/d3-guideplot/guide-plot.html","<div id=\"guide-plot-group\" class=\"guideplot\"><g-plot ng-repeat=\"pcaDef in pcaDefs\" pca-def=\"pcaDef\" id=\"{{pcaDef}}\"></g-plot></div>");
 $templateCache.put("components/d3-slidegraph/slide-com.html","<li class=\"item wrap\"><vl-plot-group ng-if=\"chart!=undefined\" class=\"item\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"false\" show-axis-prop=\"false\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"true\" toggle-shelf=\"false\"></vl-plot-group></li>");
 $templateCache.put("components/d3-slidegraph/slide-graph.html","<div class=\"slideGraph card no-top-margin\"><h2 style=\"position: absolute;\">Focus view</h2><div class=\"wrap\"><button class=\"butSlider\" ng-click=\"prev()\"><i class=\"fa fa-angle-double-up\"></i></button><div class=\"scroller\"><ul class=\"items-slider\"><slide-com ng-repeat=\"chart in buffer track by $index\" chart=\"chart\"></slide-com></ul></div><button class=\"butSlider\" ng-click=\"next()\"><i class=\"fa fa-angle-double-down\"></i></button></div></div>");
-$templateCache.put("components/guidemenu/guideMenu.html","<div class=\"contain\"><div class=\"sidebar-header\"><h2>Guided navigation</h2></div><div class=\"thum\" ng-hide=\"prop.dim>2\"><svg class=\"mainview\" viewbox=\"0 0 1200 1200\" width=\"100%\" height=\"100%\" preserveaspectratio=\"xMidYMid meet\" style=\"background-color: white;position: relative;\" ng-hide=\"prop.dim>3\"><g class=\"oneDimentional\" ng-hide=\"prop.dim!==0\"><foreignobject class=\"foreignObject\" ng-if=\"prop.dim==0\" ng-repeat=\"chart in prop.previewcharts track by generateID(chart)\" ng-class=\"{\'active\': prop.pos== $index}\" xmlns=\"http://www.w3.org/1999/xhtml\" x=\"-135\" y=\"-65\" width=\"300\" height=\"110\"><vl-plot-group ng-if=\"prop.previewcharts\" class=\"main-vl-plot-group card thumplot no-shrink\" ng-class=\"{\'square\':prop.dim}\" ng-click=\"previewSlider($index)\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"false\" show-axis-prop=\"true\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"false\" toggle-shelf=\"false\" priority=\"priority * $index\"></vl-plot-group></foreignobject></g><g class=\"twoDimentional\" ng-hide=\"prop.dim!=1\"></g><g class=\"threeDimentional\" ng-hide=\"prop.dim!=2\"></g></svg><canvas class=\"scatterplot\" width=\"1200\" height=\"1200\" ng-hide=\"prop.dim!=1\"></canvas><svg class=\"legend\"></svg><div style=\"position: absolute; color: black; width: 100%; text-align: center; padding: 10px;\" ng-if=\"confict\"><h4 style=\"font-weight: normal;display: inline-block;\">Too many instances! We recommend staying with <strong>{{byPass?\'\':marks[recommendLevel].label}}</strong></h4><md-button class=\"warningbtn\" ng-class=\"{\'byPass\':byPass}\" ng-click=\"byPassHandle()\">{{byPass?marks[recommendLevel].label:\'Display anyway\'}}</md-button></div><div style=\"position: absolute; color: black; width: 100%; text-align: center; padding: 10px;\" ng-if=\"prop.mark===\'contour\'\"><h4 style=\"font-weight: normal;display: inline-block;\">This feature is not implemented yet</h4></div></div><div class=\"nDimentional\" style=\"width: 100%;min-height: 500px\"></div></div>");
+$templateCache.put("components/guidemenu/guideMenu.html","<div class=\"contain\"><div class=\"sidebar-header\"><h2>Guided navigation</h2></div><div class=\"thum\" ng-hide=\"prop.dim>2\"><svg class=\"mainview\" viewbox=\"0 0 1200 1200\" width=\"100%\" height=\"100%\" preserveaspectratio=\"xMidYMid meet\" style=\"background-color: white;position: relative;\" ng-hide=\"prop.dim>3\"><g class=\"oneDimentional\" ng-hide=\"prop.dim!==0\"><foreignobject class=\"foreignObject\" ng-if=\"prop.dim==0\" ng-repeat=\"chart in prop.previewcharts track by generateID(chart)\" ng-class=\"{\'active\': prop.pos== $index}\" xmlns=\"http://www.w3.org/1999/xhtml\" x=\"-135\" y=\"-65\" width=\"300\" height=\"110\"><vl-plot-group ng-if=\"prop.previewcharts\" class=\"main-vl-plot-group card thumplot no-shrink\" ng-class=\"{\'square\':prop.dim}\" ng-click=\"previewSlider($index)\" chart=\"chart\" show-bookmark=\"false\" show-debug=\"false\" show-select=\"false\" show-axis-prop=\"true\" show-sort=\"false\" show-transpose=\"false\" enable-pills-preview=\"true\" always-scrollable=\"false\" overflow=\"false\" show-label=\"false\" tooltip=\"false\" toggle-shelf=\"false\" priority=\"priority * $index\"></vl-plot-group></foreignobject></g><g class=\"twoDimentional\" ng-hide=\"prop.dim!=1\"></g><g class=\"threeDimentional\" ng-hide=\"prop.dim!=2\"></g></svg><canvas class=\"scatterplot\" width=\"1200\" height=\"1200\" ng-hide=\"prop.dim!=1\"></canvas><svg class=\"legend\"></svg><div style=\"position: absolute; color: black; width: 100%; text-align: center; padding: 10px;\" ng-if=\"confict\"><h4 style=\"font-weight: normal;display: inline-block;\">Too many instances! We recommend staying with <strong>{{byPass?\'\':marks[recommendLevel].label}}</strong></h4><md-button class=\"warningbtn\" ng-class=\"{\'byPass\':byPass}\" ng-click=\"byPassHandle()\">{{byPass?marks[recommendLevel].label:\'Display anyway\'}}</md-button></div><div style=\"position: absolute; color: black; width: 100%; text-align: center; padding: 10px;\" ng-if=\"prop.mark===\'contour\'\"><h4 style=\"font-weight: normal;display: inline-block;\">This feature is not implemented yet</h4></div></div><div class=\"nDimentional\" style=\"width: 100%;min-height: 500px\" ng-show=\"prop.dim>2\" element-ready=\"nDimentional\"></div></div>");
 $templateCache.put("components/vgSpecEditor/vgSpecEditor.html","<div class=\"card scroll-y abs-100 vflex no-right-margin\"><div><div class=\"right\"><a class=\"command\" ui-zeroclip=\"\" zeroclip-model=\"Spec.chart.vgSpec | compactJSON\">Copy</a><lyra-export></lyra-export></div><h3>Vega Specification</h3></div><textarea class=\"vgspec flex-grow-1\" json-input=\"\" disabled=\"disabled\" type=\"text\" ng-model=\"Spec.chart.vgSpec\"></textarea></div>");}]);
