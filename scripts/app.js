@@ -6208,7 +6208,8 @@ angular.module('pcagnosticsviz')
                         .hideDelay(2000));
                 $event.currentTarget.setAttribute('aria-checked','false');
                 $scope.Dataset.schema._fieldSchemas_selected.forEach(f=>f.disable=true); // disabel all
-                $scope.Dataset.schema._fieldSchemas_selected= $scope.Dataset.schema._fieldSchemas_selected.slice(0,2);
+                // $scope.Dataset.schema._fieldSchemas_selected= $scope.Dataset.schema._fieldSchemas_selected.slice(0,2);
+                $scope.Dataset.schema._fieldSchemas_selected= [];
                 $scope.Dataset.schema._fieldSchemas_selected.forEach(f=>f.disable=false); // enable 2 for avoid error
                 $scope.Dataset.schema._fieldSchemaIndex_selected = {};
                 $scope.Dataset.schema._fieldSchemas_selected.forEach(d=>$scope.Dataset.schema._fieldSchemaIndex_selected[d.field]=d);
