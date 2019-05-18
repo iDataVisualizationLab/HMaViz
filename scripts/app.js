@@ -1178,8 +1178,8 @@ angular.module('pcagnosticsviz')
                         }
                         dimObj[t.text] = dimFormat;
                     });
-                    if (generalattr.pc2===undefined) {
-                        generalattr.pc2 = generalattr.pc2||ParCoords()('.nDimentional');
+                    if (generalattr.pc2===undefined||d3v4.select('.nDimentional canvas').emmpty()) {
+                        generalattr.pc2 = ParCoords()('.nDimentional');
                     generalattr.pc2
                         .mode("queue") // progressive rendering
                         .margin(generalattr.margin)
